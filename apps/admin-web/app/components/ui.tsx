@@ -161,6 +161,15 @@ export function ErrorBanner({ message }: { message?: string | null }) {
   );
 }
 
+export function SuccessBanner({ message }: { message?: string | null }) {
+  if (!message) return null;
+  return (
+    <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+      {message}
+    </div>
+  );
+}
+
 export function EmptyState({ message }: { message: string }) {
   return (
     <div className="rounded-md border border-dashed border-neutral-300 bg-neutral-50 px-6 py-12 text-center text-sm text-neutral-500">

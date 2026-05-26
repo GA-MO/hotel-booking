@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 
 import { useShell } from "@/app/components/AppShell";
 import {
@@ -151,10 +152,17 @@ export default function PricingPage() {
       <div className="mt-8">
         <Card title="Availability overrides">
           <p className="text-sm text-neutral-600">
-            Per-day overrides (close-outs, special rates, minimum nights) live behind the
-            availability endpoint. Phase 1 ships the calendar view as the read surface;
-            bulk edit UI is planned for Phase 2.
+            Per-day overrides (close-outs, special rates, blocks) are edited on the
+            calendar, where the cell grid mirrors the underlying data shape. Open
+            the calendar and toggle{" "}
+            <span className="font-medium text-neutral-800">{t("bulk_edit")}</span>{" "}
+            to select cells and apply changes.
           </p>
+          <div className="mt-3">
+            <Link href="/calendar" className="text-sm font-medium text-neutral-900 underline">
+              {t("nav_calendar")} →
+            </Link>
+          </div>
         </Card>
       </div>
     </div>

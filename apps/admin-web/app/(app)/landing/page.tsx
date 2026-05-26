@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { useShell } from "@/app/components/AppShell";
+import SingleImageUpload from "@/app/components/SingleImageUpload";
 import {
   Button,
   Card,
@@ -179,13 +180,21 @@ export default function LandingPageEditor() {
         <>
           <Card title="Branding">
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="Logo URL">
-                <TextInput
+              <Field label={t("logo_image")}>
+                <SingleImageUpload
+                  hotelID={activeHotel.id}
+                  kind="hotel_photo"
                   value={draft.branding.logo_url || ""}
-                  onChange={(e) =>
+                  onChange={(url) =>
                     setDraft({
                       ...draft,
-                      branding: { ...draft.branding, logo_url: e.target.value },
+                      branding: { ...draft.branding, logo_url: url },
+                    })
+                  }
+                  onRemove={() =>
+                    setDraft({
+                      ...draft,
+                      branding: { ...draft.branding, logo_url: "" },
                     })
                   }
                 />
@@ -247,11 +256,16 @@ export default function LandingPageEditor() {
                   }
                 />
               </Field>
-              <Field label="OG image URL">
-                <TextInput
+              <Field label={t("og_image")}>
+                <SingleImageUpload
+                  hotelID={activeHotel.id}
+                  kind="hotel_photo"
                   value={draft.seo.og_image_url || ""}
-                  onChange={(e) =>
-                    setDraft({ ...draft, seo: { ...draft.seo, og_image_url: e.target.value } })
+                  onChange={(url) =>
+                    setDraft({ ...draft, seo: { ...draft.seo, og_image_url: url } })
+                  }
+                  onRemove={() =>
+                    setDraft({ ...draft, seo: { ...draft.seo, og_image_url: "" } })
                   }
                 />
               </Field>

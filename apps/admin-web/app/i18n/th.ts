@@ -112,4 +112,23 @@ export const th = {
   upload_hint: "JPEG / PNG / WebP, ไม่เกิน 10 MB",
   upload_too_large: "ไฟล์เกิน 10 MB",
   uploading: "กำลังอัปโหลด…",
+  replace_image: "เปลี่ยนรูป",
+  logo_image: "โลโก้โรงแรม",
+  og_image: "รูปสำหรับ Social Share",
+
+  // bulk availability editor
+  bulk_edit: "แก้ไขเป็นกลุ่ม",
+  exit_bulk_edit: "ออกจากโหมดแก้ไข",
+  bulk_set_inventory: "กำหนดจำนวนห้อง",
+  bulk_set_rate: "กำหนดราคา",
+  bulk_block_sales: "ปิดขาย",
+  bulk_selected: "ที่เลือก",
+  bulk_clear_selection: "ล้างการเลือก",
+  bulk_clear_overrides: "ล้างค่าปรับแต่ง",
+  bulk_save_overrides: "บันทึกค่าปรับแต่ง",
+  bulk_hint:
+    "คลิกเพื่อเลือก / Shift+คลิก เพื่อเลือกช่วงในแถวเดียว",
+  bulk_saved: "บันทึกค่าปรับแต่งเรียบร้อย",
+  bulk_cleared: "ล้างค่าปรับแต่งเรียบร้อย",
+  bulk_invalid_rate: "รูปแบบราคาไม่ถูกต้อง",
 };
