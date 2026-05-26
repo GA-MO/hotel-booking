@@ -32,25 +32,28 @@ type RoomTypeBasics struct {
 
 // GetRoomTypeBasics returns the parent hotel + base rate for a room_type.
 // Returns ErrRoomTypeNotFound if the room_type doesn't exist or is soft-deleted.
+//
+// base_rate is stored as NUMERIC(10,2). We multiply server-side to bigint cents
+// so the value never round-trips through float64 — see ADR-0006 (money is
+// int64 minor units).
 func (r *Repository) GetRoomTypeBasics(ctx context.Context, roomTypeID uuid.UUID) (*RoomTypeBasics, error) {
 	var rt RoomTypeBasics
-	var rateNum float64
 	err := r.db.QueryRow(ctx, `
 		SELECT rt.hotel_id, h.status, h.account_id,
-		       rt.total_inventory, rt.base_rate, rt.base_currency
+		       rt.total_inventory,
+		       (rt.base_rate * 100)::bigint AS base_rate_cents,
+		       rt.base_currency
 		FROM room_types rt
 		JOIN hotels h ON h.id = rt.hotel_id AND h.deleted_at IS NULL
 		WHERE rt.id = $1 AND rt.deleted_at IS NULL
 	`, roomTypeID).Scan(&rt.HotelID, &rt.HotelStatus, &rt.HotelAccountID,
-		&rt.TotalInventory, &rateNum, &rt.BaseCurrency)
+		&rt.TotalInventory, &rt.BaseRateCents, &rt.BaseCurrency)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrRoomTypeNotFound
 		}
 		return nil, err
 	}
-	// base_rate stored as NUMERIC(10,2) — convert to cents.
-	rt.BaseRateCents = int64(rateNum*100 + 0.5)
 	return &rt, nil
 }
 
@@ -161,6 +164,13 @@ func (r *Repository) CreatePending(
 // checkAvailability verifies that for every night in [start, end), the total
 // inventory (with any override) minus active bookings covers the requested
 // room_count. Active bookings here = pending_payment | confirmed | checked_in.
+//
+// Implementation: one query that expands the date range via generate_series,
+// LEFT JOINs availability_overrides, and LATERAL-joins a per-day sold count.
+// Returns whether any day is closed and the minimum daily available rooms.
+// This used to be a 2-query-per-night loop while holding FOR UPDATE on
+// room_types; collapsing to a single round-trip shortens the critical section
+// substantially under contention.
 func checkAvailability(
 	ctx context.Context,
 	tx pgx.Tx,
@@ -169,35 +179,39 @@ func checkAvailability(
 	start, end time.Time,
 	requested int,
 ) error {
-	for d := start; d.Before(end); d = d.AddDate(0, 0, 1) {
-		var inventoryChange int
-		var closed bool
-		err := tx.QueryRow(ctx, `
-			SELECT inventory_change, closed
-			FROM availability_overrides
-			WHERE room_type_id = $1 AND date = $2
-		`, roomTypeID, d).Scan(&inventoryChange, &closed)
-		if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-			return fmt.Errorf("read override %s: %w", d.Format("2006-01-02"), err)
-		}
-		if closed {
-			return ErrNoAvailability
-		}
-		var sold int
-		if err := tx.QueryRow(ctx, `
-			SELECT COALESCE(SUM(room_count), 0)
-			FROM bookings
-			WHERE room_type_id = $1
-			  AND status IN ('pending_payment','confirmed','checked_in')
-			  AND $2 >= check_in_date
-			  AND $2 <  check_out_date
-		`, roomTypeID, d).Scan(&sold); err != nil {
-			return fmt.Errorf("count sold %s: %w", d.Format("2006-01-02"), err)
-		}
-		available := totalInventory + inventoryChange - sold
-		if available < requested {
-			return ErrNoAvailability
-		}
+	var anyClosed bool
+	var minAvail *int
+	err := tx.QueryRow(ctx, `
+		WITH days AS (
+			SELECT generate_series($2::date, ($3::date - 1), '1 day'::interval)::date AS d
+		)
+		SELECT
+			COALESCE(bool_or(COALESCE(ov.closed, false)), false) AS any_closed,
+			MIN($4::int + COALESCE(ov.inventory_change, 0) - COALESCE(s.sold, 0)) AS min_available
+		FROM days
+		LEFT JOIN availability_overrides ov
+			ON ov.room_type_id = $1 AND ov.date = days.d
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(b.room_count), 0)::int AS sold
+			FROM bookings b
+			WHERE b.room_type_id = $1
+			  AND b.status IN ('pending_payment','confirmed','checked_in')
+			  AND days.d >= b.check_in_date
+			  AND days.d <  b.check_out_date
+		) s ON true
+	`, roomTypeID, start, end, totalInventory).Scan(&anyClosed, &minAvail)
+	if err != nil {
+		return fmt.Errorf("check availability: %w", err)
+	}
+	if anyClosed {
+		return ErrNoAvailability
+	}
+	// minAvail is NULL only when generate_series produced no rows — i.e.
+	// the caller's date range was empty. Service layer rejects that earlier
+	// (check_out must be strictly after check_in), so we treat it as a
+	// safety belt and reject the booking.
+	if minAvail == nil || *minAvail < requested {
+		return ErrNoAvailability
 	}
 	return nil
 }
@@ -285,9 +299,17 @@ func (r *Repository) transitionStaff(
 	fromStatus, toStatus, timestampCol, eventType string,
 	actorID *uuid.UUID,
 ) (*Booking, error) {
+	// Whitelist the timestamp column — every caller in this repo passes a
+	// literal, but if a future caller ever forwarded user input here it would
+	// be an injection. Cheap belt-and-braces.
 	tsClause := ""
-	if timestampCol != "" {
+	switch timestampCol {
+	case "":
+		// no timestamp update (e.g. no-show)
+	case "checked_in_at", "checked_out_at":
 		tsClause = ", " + timestampCol + " = NOW()"
+	default:
+		return nil, fmt.Errorf("transitionStaff: disallowed timestamp column %q", timestampCol)
 	}
 	tx, err := r.db.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {

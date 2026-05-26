@@ -5,10 +5,9 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
-
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/GA-MO/hotel-booking/apps/api/internal/booking"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/config"
@@ -42,7 +41,7 @@ func main() {
 
 	bookingSvc := booking.NewService(booking.NewRepository(pool))
 	notificationSvc := notification.NewService(notification.NewRepository(pool))
-	subscriptionSvc := newSubscriptionService(pool)
+	subscriptionSvc := subscription.NewService(subscription.NewRepository(pool))
 	sender := buildSender(cfg)
 
 	slog.Info("worker started", "env", cfg.Env, "sender", senderName(cfg))
@@ -50,8 +49,22 @@ func main() {
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
 
+	// Overlap guard: if a previous tick is still running when the next fires
+	// (e.g. notification dispatch backs up against a slow Resend response) we
+	// skip the new tick rather than queueing them. Belt-and-braces — runJobs
+	// is normally well under a second.
+	var running atomic.Bool
+	tickOnce := func() {
+		if !running.CompareAndSwap(false, true) {
+			slog.Warn("worker: previous tick still running, skipping")
+			return
+		}
+		defer running.Store(false)
+		runJobs(ctx, bookingSvc, notificationSvc, subscriptionSvc, sender)
+	}
+
 	// Run once on startup so we don't wait a full minute on boot.
-	runJobs(ctx, bookingSvc, notificationSvc, subscriptionSvc, sender)
+	tickOnce()
 
 	for {
 		select {
@@ -59,7 +72,7 @@ func main() {
 			slog.Info("worker shutting down")
 			return
 		case <-tick.C:
-			runJobs(ctx, bookingSvc, notificationSvc, subscriptionSvc, sender)
+			tickOnce()
 		}
 	}
 }
@@ -85,31 +98,17 @@ func runJobs(
 		slog.Info("dispatched notifications", "sent", sent, "failed", failed)
 	}
 
-	if subscriptionSvc != nil {
-		sum := subscriptionSvc.RunMaintenance(ctx)
-		if sum.TrialEnding+sum.TrialLapsed+sum.Suspended+sum.Cancelled+sum.Terminated+sum.ErrorCount > 0 {
-			slog.Info("subscription maintenance",
-				"trial_ending", sum.TrialEnding,
-				"trial_lapsed", sum.TrialLapsed,
-				"suspended", sum.Suspended,
-				"cancelled", sum.Cancelled,
-				"terminated", sum.Terminated,
-				"errors", sum.ErrorCount,
-			)
-		}
+	sum := subscriptionSvc.RunMaintenance(ctx)
+	if sum.TrialEnding+sum.TrialLapsed+sum.Suspended+sum.Cancelled+sum.Terminated+sum.ErrorCount > 0 {
+		slog.Info("subscription maintenance",
+			"trial_ending", sum.TrialEnding,
+			"trial_lapsed", sum.TrialLapsed,
+			"suspended", sum.Suspended,
+			"cancelled", sum.Cancelled,
+			"terminated", sum.Terminated,
+			"errors", sum.ErrorCount,
+		)
 	}
-}
-
-// newSubscriptionService constructs the subscription service. Wrapped to
-// guard the maintenance loop: if the service ever fails to initialise (panic
-// during construction), the worker continues running the other jobs.
-func newSubscriptionService(pool *pgxpool.Pool) *subscription.Service {
-	defer func() {
-		if r := recover(); r != nil {
-			slog.Warn("subscription service unavailable; maintenance scan disabled", "panic", r)
-		}
-	}()
-	return subscription.NewService(subscription.NewRepository(pool))
 }
 
 // buildSender picks the right sender based on config:

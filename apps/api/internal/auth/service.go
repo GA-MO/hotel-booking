@@ -97,51 +97,55 @@ func (s *Service) Login(ctx context.Context, req LoginRequest, meta RequestMeta)
 	}
 
 	if err := s.repo.UpdateLastLogin(ctx, user.ID); err != nil {
-		// non-fatal — login still succeeds
-		_ = err
+		// non-fatal — login still succeeds, but surface the signal in case the
+		// DB write path is degrading. Don't gate the request on it.
+		slog.Warn("update last_login_at failed", "user_id", user.ID, "err", err)
 	}
 	return s.issueTokens(ctx, *user, meta)
 }
 
-// Refresh rotates a refresh token. Detects reuse of an already-rotated token as theft.
+// Refresh rotates a refresh token. The validate-issue-revoke sequence runs in a
+// single transaction with row-level lock (see Repository.RotateSession) so two
+// concurrent refreshes with the same stolen token cannot both succeed — the
+// second one sees rotated_to set and is treated as theft.
 func (s *Service) Refresh(ctx context.Context, refreshToken string, meta RequestMeta) (*AuthResponse, error) {
 	if refreshToken == "" {
 		return nil, ErrInvalidToken
 	}
-	hash := hashToken(refreshToken)
-	session, err := s.repo.GetSessionByTokenHash(ctx, hash)
+
+	newRefreshTok, err := generateRefreshToken()
 	if err != nil {
+		return nil, fmt.Errorf("gen refresh token: %w", err)
+	}
+	oldHash := hashToken(refreshToken)
+	newHash := hashToken(newRefreshTok)
+	expiresAt := time.Now().Add(s.jwt.RefreshTTL())
+
+	user, _, affectedUserID, err := s.repo.RotateSession(ctx, oldHash, newHash, meta.UserAgent, meta.IP, expiresAt)
+	if err != nil {
+		// Token-theft response: an already-rotated session being presented again
+		// means someone kept a copy of the previous refresh token. Revoke every
+		// session for the affected user as a blast-radius limit.
+		if errors.Is(err, ErrSessionReused) && affectedUserID != uuid.Nil {
+			if revErr := s.repo.RevokeAllUserSessions(ctx, affectedUserID); revErr != nil {
+				slog.Warn("revoke all sessions after reuse failed", "user_id", affectedUserID, "err", revErr)
+			}
+			return nil, ErrSessionRevoked
+		}
 		return nil, err
 	}
 
-	// Token theft detection: a rotated token being presented again means someone
-	// kept a copy. Revoke ALL sessions for this user as a defensive measure.
-	if session.RotatedTo != nil {
-		_ = s.repo.RevokeAllUserSessions(ctx, session.UserID)
-		return nil, ErrSessionRevoked
-	}
-	if session.RevokedAt != nil {
-		return nil, ErrSessionRevoked
-	}
-	if time.Now().After(session.ExpiresAt) {
-		return nil, ErrSessionExpired
-	}
-
-	user, err := s.repo.GetUserByID(ctx, session.UserID)
+	identity := Identity{UserID: user.ID, AccountID: user.AccountID, Role: user.Role}
+	accessTok, err := s.jwt.SignAccess(identity)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("sign access: %w", err)
 	}
-
-	resp, err := s.issueTokens(ctx, *user, meta)
-	if err != nil {
-		return nil, err
-	}
-
-	// Record rotation on the old session (points to the new one).
-	newSessionID, _ := s.resolveLastSessionID(ctx, resp.RefreshToken)
-	_ = s.repo.RevokeSession(ctx, session.ID, newSessionID)
-
-	return resp, nil
+	return &AuthResponse{
+		User:                 user,
+		AccessToken:          accessTok,
+		RefreshToken:         newRefreshTok,
+		AccessTokenExpiresIn: int(s.jwt.AccessTTL().Seconds()),
+	}, nil
 }
 
 // Logout revokes the session associated with the supplied refresh token.
@@ -192,16 +196,6 @@ func (s *Service) issueTokens(ctx context.Context, user User, meta RequestMeta) 
 		RefreshToken:         refreshTok,
 		AccessTokenExpiresIn: int(s.jwt.AccessTTL().Seconds()),
 	}, nil
-}
-
-// resolveLastSessionID looks up the session row id of a just-issued refresh token.
-// Used to set the rotated_to pointer on the old session.
-func (s *Service) resolveLastSessionID(ctx context.Context, refreshToken string) (*uuid.UUID, error) {
-	sess, err := s.repo.GetSessionByTokenHash(ctx, hashToken(refreshToken))
-	if err != nil {
-		return nil, err
-	}
-	return &sess.ID, nil
 }
 
 // ----- validation helpers -----

@@ -30,10 +30,10 @@ func run() error {
 		return fmt.Errorf("load config: %w", err)
 	}
 
-	logger := newLogger(cfg.LogLevel, cfg.Env)
+	logger := newLogger(cfg.LogLevel, cfg.Env).With("svc", "api", "env", cfg.Env)
 	slog.SetDefault(logger)
 
-	logger.Info("starting api", "env", cfg.Env, "port", cfg.APIPort)
+	logger.Info("starting api", "port", cfg.APIPort)
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -48,7 +48,11 @@ func run() error {
 	if err != nil {
 		return fmt.Errorf("connect redis: %w", err)
 	}
-	defer rdb.Close()
+	if rdb != nil {
+		defer rdb.Close()
+	} else {
+		logger.Info("redis disabled (REDIS_URL not set)")
+	}
 
 	srv := server.New(cfg, pool, rdb, logger)
 

@@ -34,8 +34,9 @@ const (
 )
 
 // EventHook is invoked after a successful state transition. The booking row
-// passed in reflects the post-transition state. Implementations should do
-// their work quickly — they share the HTTP request's context.
+// passed in reflects the post-transition state. The ctx passed in is detached
+// from the request's cancellation (so a client disconnect mid-flight does not
+// abort the outbox write) but bounded by a short timeout — see Service.fire.
 type EventHook func(ctx context.Context, event Event, b *Booking)
 
 type Service struct {
@@ -56,7 +57,10 @@ func (s *Service) SetEventHook(h EventHook) *Service {
 }
 
 // fire is a tiny wrapper that swallows panics from a misbehaving hook so they
-// never affect the caller's HTTP response.
+// never affect the caller's HTTP response. The hook context is detached from
+// the request's cancellation — the hook writes to the notification outbox and
+// we don't want a client disconnect to abort that write — but we cap it with
+// a short timeout so a stuck DB cannot pin a goroutine indefinitely.
 func (s *Service) fire(ctx context.Context, event Event, b *Booking) {
 	if s.hook == nil || b == nil {
 		return
@@ -66,7 +70,9 @@ func (s *Service) fire(ctx context.Context, event Event, b *Booking) {
 			slog.Error("booking event hook panic", "event", event, "panic", r)
 		}
 	}()
-	s.hook(ctx, event, b)
+	hookCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	s.hook(hookCtx, event, b)
 }
 
 // CreatePublic builds a booking from a guest checkout (no auth). The hotel

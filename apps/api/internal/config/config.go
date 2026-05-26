@@ -15,7 +15,10 @@ type Config struct {
 	CORSOrigins []string `envconfig:"API_CORS_ORIGINS" default:"http://localhost:3000,http://localhost:3001"`
 
 	DatabaseURL string `envconfig:"DATABASE_URL" required:"true"`
-	RedisURL    string `envconfig:"REDIS_URL" required:"true"`
+	// RedisURL is optional today — no production path depends on Redis yet
+	// (readyz reports it as "skipped" when unset). When we wire in landing
+	// caching or rate-limiting this should become required.
+	RedisURL string `envconfig:"REDIS_URL"`
 
 	StorageEndpoint      string `envconfig:"STORAGE_ENDPOINT"`
 	StorageRegion        string `envconfig:"STORAGE_REGION" default:"us-east-1"`

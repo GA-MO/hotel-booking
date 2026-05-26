@@ -42,6 +42,20 @@ var allowedSectionTypes = map[string]struct{}{
 	"contact":   {},
 }
 
+// PrimaryLocale returns the most recently published locale for a hotel's
+// landing pages, or "th" when nothing has been published yet. Used by the
+// booking event hook to pick a render language for the guest email.
+func (s *Service) PrimaryLocale(ctx context.Context, hotelID uuid.UUID) (string, error) {
+	loc, err := s.repo.PrimaryLocale(ctx, hotelID)
+	if err != nil {
+		return "th", err
+	}
+	if loc == "" {
+		return "th", nil
+	}
+	return loc, nil
+}
+
 // ensureHotelOwned returns ErrHotelNotFound if the hotel doesn't exist or
 // isn't owned by accountID. Centralizes tenant-isolation so every endpoint
 // hits the same check.

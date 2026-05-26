@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"net/http"
 	"time"
@@ -56,25 +57,27 @@ func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog
 	notificationSvc := notification.NewService(notification.NewRepository(pool))
 	subscriptionSvc := subscription.NewService(subscription.NewRepository(pool))
 
-	// Booking events fan out to notification.Enqueue* through this hook. We
-	// look up the hotel name + locale lazily here so booking doesn't have to
-	// depend on the hotel/landing packages directly.
+	// Booking events fan out to notification.Enqueue* through this hook. The
+	// hook delegates to hotel.Service / landing.Service for lookups instead of
+	// running raw SQL here — the goal is to keep this composition root free of
+	// persistence concerns. The ctx is detached from the request (see
+	// booking.Service.fire) so a client disconnect mid-flight can't abort the
+	// outbox write.
 	bookingHook := func(ctx context.Context, event booking.Event, b *booking.Booking) {
-		var hotelName, locale string
-		_ = pool.QueryRow(ctx, `SELECT name FROM hotels WHERE id = $1`, b.HotelID).Scan(&hotelName)
-		// Best-guess locale: first published landing page locale, falls back to "th".
-		_ = pool.QueryRow(ctx, `
-			SELECT locale FROM landing_pages
-			WHERE hotel_id = $1 AND status = 'published'
-			ORDER BY published_at DESC LIMIT 1
-		`, b.HotelID).Scan(&locale)
-		if locale == "" {
-			locale = "th"
+		target, err := hotelSvc.GetNotificationTarget(ctx, b.HotelID)
+		if err != nil {
+			logger.Warn("notification target lookup failed", "booking_id", b.ID, "err", err)
+			return
+		}
+		locale, err := landingSvc.PrimaryLocale(ctx, b.HotelID)
+		if err != nil {
+			// Locale is non-critical — fall back to the service default.
+			logger.Warn("primary locale lookup failed", "booking_id", b.ID, "err", err)
 		}
 		info := notification.BookingInfo{
 			ID:           b.ID,
 			Reference:    b.Reference,
-			HotelName:    hotelName,
+			HotelName:    target.Name,
 			GuestEmail:   b.GuestEmail,
 			GuestName:    b.GuestName,
 			CheckInDate:  b.CheckInDate.Format("2006-01-02"),
@@ -84,33 +87,23 @@ func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog
 			TotalCents:   b.TotalCents,
 			Locale:       locale,
 		}
-		var err error
+		var enqErr error
 		switch event {
 		case booking.EventCreated:
-			_, err = notificationSvc.EnqueueBookingCreated(ctx, info)
+			_, enqErr = notificationSvc.EnqueueBookingCreated(ctx, info)
 		case booking.EventConfirmed:
-			_, err = notificationSvc.EnqueueBookingConfirmed(ctx, info)
+			_, enqErr = notificationSvc.EnqueueBookingConfirmed(ctx, info)
 		case booking.EventCancelled:
-			_, err = notificationSvc.EnqueueBookingCancelled(ctx, info, b.CancellationReason)
+			_, enqErr = notificationSvc.EnqueueBookingCancelled(ctx, info, b.CancellationReason)
 		case booking.EventPaymentClaimed:
-			// Route to hotel staff, not the guest. Look up the contact email
-			// from the hotel row; fall back to the account owner's email
-			// when the hotel has no contact yet (onboarding state).
-			var hotelEmail string
-			_ = pool.QueryRow(ctx, `
-				SELECT COALESCE(NULLIF(h.email,''), u.email)
-				FROM hotels h
-				JOIN users u ON u.account_id = h.account_id AND u.role = 'owner'
-				WHERE h.id = $1
-				LIMIT 1
-			`, b.HotelID).Scan(&hotelEmail)
-			if hotelEmail == "" {
+			// Payment-claimed goes to the hotel staff, not the guest.
+			if target.ContactEmail == "" {
 				return // best-effort; no recipient available
 			}
-			_, err = notificationSvc.EnqueuePaymentClaimed(ctx, info, hotelEmail)
+			_, enqErr = notificationSvc.EnqueuePaymentClaimed(ctx, info, target.ContactEmail)
 		}
-		if err != nil {
-			logger.Warn("enqueue booking notification", "event", event, "booking_id", b.ID, "err", err)
+		if enqErr != nil {
+			logger.Warn("enqueue booking notification", "event", event, "booking_id", b.ID, "err", enqErr)
 		}
 	}
 	bookingSvc := booking.NewService(booking.NewRepository(pool)).SetEventHook(bookingHook)
@@ -190,6 +183,7 @@ func (s *Server) routes() *chi.Mux {
 
 	r.Use(middleware.RequestID)
 	r.Use(middleware.RealIP)
+	r.Use(accessLog(s.logger))
 	r.Use(middleware.Recoverer)
 	r.Use(middleware.Timeout(30 * time.Second))
 	r.Use(cors.Handler(cors.Options{
@@ -256,16 +250,20 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := withTimeout(r.Context(), 3*time.Second)
 	defer cancel()
 
-	status := map[string]string{"db": "ok", "redis": "ok"}
+	status := map[string]string{"db": "ok", "redis": "skipped"}
 	code := http.StatusOK
 
 	if err := s.db.Ping(ctx); err != nil {
 		status["db"] = "down: " + err.Error()
 		code = http.StatusServiceUnavailable
 	}
-	if err := s.rdb.Ping(ctx).Err(); err != nil {
-		status["redis"] = "down: " + err.Error()
-		code = http.StatusServiceUnavailable
+	if s.rdb != nil {
+		if err := s.rdb.Ping(ctx).Err(); err != nil {
+			status["redis"] = "down: " + err.Error()
+			code = http.StatusServiceUnavailable
+		} else {
+			status["redis"] = "ok"
+		}
 	}
 
 	respond.Body(w, code, status)
@@ -273,9 +271,10 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 
 // resolveHotelBySlug is passed into the booking module's public create handler
 // so the guest checkout endpoint can map a public slug to an internal hotel
-// id. Only hotels with status='live' are eligible for public bookings.
-func (s *Server) resolveHotelBySlug(slug string) (uuid.UUID, bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+// id. Only hotels with status='live' are eligible for public bookings. ctx
+// flows from the inbound request so client disconnects propagate.
+func (s *Server) resolveHotelBySlug(ctx context.Context, slug string) (uuid.UUID, bool) {
+	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	var id uuid.UUID
 	err := s.db.QueryRow(ctx, `
@@ -283,7 +282,7 @@ func (s *Server) resolveHotelBySlug(slug string) (uuid.UUID, bool) {
 		WHERE slug = $1 AND status = 'live' AND deleted_at IS NULL
 	`, slug).Scan(&id)
 	if err != nil {
-		if err == pgx.ErrNoRows {
+		if errors.Is(err, pgx.ErrNoRows) {
 			return uuid.Nil, false
 		}
 		s.logger.Warn("resolveHotelBySlug", "err", err)

@@ -9,7 +9,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/dberr"
 )
+
+var isUniqueViolation = dberr.IsUniqueViolation
 
 type Repository struct {
 	db *pgxpool.Pool
@@ -498,12 +502,3 @@ func ptrOrNil[T any](p *T) any {
 	return *p
 }
 
-func isUniqueViolation(err error) bool {
-	const code = "23505"
-	type pgErr interface{ SQLState() string }
-	var pe pgErr
-	if errors.As(err, &pe) {
-		return pe.SQLState() == code
-	}
-	return false
-}

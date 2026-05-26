@@ -62,6 +62,28 @@ func scanLandingPage(row pgx.Row) (*LandingPage, error) {
 	return &lp, nil
 }
 
+// PrimaryLocale returns the most recently published landing-page locale for a
+// hotel, or "" if none is published. Used by the booking-notification fan-out
+// to choose which language to render the email in. Not account-scoped: the
+// caller (booking event hook) has already established tenant context via the
+// booking row.
+func (r *Repository) PrimaryLocale(ctx context.Context, hotelID uuid.UUID) (string, error) {
+	var locale string
+	err := r.db.QueryRow(ctx, `
+		SELECT locale FROM landing_pages
+		WHERE hotel_id = $1 AND status = 'published'
+		ORDER BY published_at DESC NULLS LAST
+		LIMIT 1
+	`, hotelID).Scan(&locale)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return locale, nil
+}
+
 // HotelBelongsToAccount returns true if the hotel exists, isn't deleted, and
 // is owned by accountID. Used by the service to enforce tenant isolation
 // before any landing-page operation runs.

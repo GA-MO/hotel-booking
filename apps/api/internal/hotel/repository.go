@@ -8,6 +8,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/dberr"
 )
 
 type Repository struct {
@@ -79,6 +81,37 @@ func (r *Repository) Create(
 		return nil, fmt.Errorf("insert hotel: %w", err)
 	}
 	return h, nil
+}
+
+// NotificationTarget is the slim hotel projection used by the booking event
+// hook to assemble a notification (no account-scoping — the booking row itself
+// already carries the hotel id from a tenant-scoped path). ContactEmail is the
+// hotel's own email when set, otherwise the account owner's login email.
+type NotificationTarget struct {
+	HotelID      uuid.UUID
+	Name         string
+	ContactEmail string
+}
+
+// GetNotificationTarget returns the minimum hotel info needed to send a
+// booking notification. Falls back to the owner user's email when the hotel
+// row has no contact (onboarding state).
+func (r *Repository) GetNotificationTarget(ctx context.Context, hotelID uuid.UUID) (*NotificationTarget, error) {
+	var t NotificationTarget
+	err := r.db.QueryRow(ctx, `
+		SELECT h.id, h.name, COALESCE(NULLIF(h.email, ''), u.email, '')
+		FROM hotels h
+		LEFT JOIN users u ON u.account_id = h.account_id AND u.role = 'owner' AND u.deleted_at IS NULL
+		WHERE h.id = $1 AND h.deleted_at IS NULL
+		LIMIT 1
+	`, hotelID).Scan(&t.HotelID, &t.Name, &t.ContactEmail)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrHotelNotFound
+		}
+		return nil, fmt.Errorf("get notification target: %w", err)
+	}
+	return &t, nil
 }
 
 func (r *Repository) GetByID(ctx context.Context, accountID, id uuid.UUID) (*Hotel, error) {
@@ -246,12 +279,4 @@ func ptrOrNil[T any](p *T) any {
 	return *p
 }
 
-func isUniqueViolation(err error) bool {
-	const code = "23505"
-	type pgErr interface{ SQLState() string }
-	var pe pgErr
-	if errors.As(err, &pe) {
-		return pe.SQLState() == code
-	}
-	return false
-}
+var isUniqueViolation = dberr.IsUniqueViolation

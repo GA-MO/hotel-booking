@@ -29,10 +29,18 @@ type ErrorBody struct {
 }
 
 type errorResponse struct {
-	Error ErrorBody `json:"error"`
+	Error     ErrorBody `json:"error"`
+	RequestID string    `json:"request_id,omitempty"`
 }
 
-// Error writes a JSON error envelope.
+// Error writes a JSON error envelope. If the response already carries an
+// X-Request-Id header (set by the server's access-log middleware), the same
+// id is echoed in the body so clients can include it in support tickets and
+// developers can grep server logs without parsing headers separately.
 func Error(w http.ResponseWriter, status int, code, message string) {
-	Body(w, status, errorResponse{Error: ErrorBody{Code: code, Message: message}})
+	resp := errorResponse{Error: ErrorBody{Code: code, Message: message}}
+	if rid := w.Header().Get("X-Request-Id"); rid != "" {
+		resp.RequestID = rid
+	}
+	Body(w, status, resp)
 }

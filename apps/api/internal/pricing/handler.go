@@ -1,7 +1,6 @@
 package pricing
 
 import (
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -11,7 +10,14 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/GA-MO/hotel-booking/apps/api/internal/auth"
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/httpx"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/respond"
+)
+
+var (
+	requireRole    = httpx.RequireRole
+	parseUUIDParam = httpx.ParseUUIDParam
+	decodeJSON     = httpx.DecodeJSON
 )
 
 type Handler struct {
@@ -226,37 +232,6 @@ func (h *Handler) publicQuote(w http.ResponseWriter, r *http.Request) {
 
 // ----- helpers -----
 
-func requireRole(allowed ...string) func(http.Handler) http.Handler {
-	allowedSet := make(map[string]struct{}, len(allowed))
-	for _, a := range allowed {
-		allowedSet[a] = struct{}{}
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			identity, ok := auth.IdentityFrom(r.Context())
-			if !ok {
-				respond.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
-				return
-			}
-			if _, ok := allowedSet[identity.Role]; !ok {
-				respond.Error(w, http.StatusForbidden, "FORBIDDEN", "insufficient role")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
-func parseUUIDParam(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
-	raw := chi.URLParam(r, name)
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		respond.Error(w, http.StatusBadRequest, "BAD_REQUEST", "invalid "+name)
-		return uuid.Nil, false
-	}
-	return id, true
-}
-
 func parseDateQuery(w http.ResponseWriter, r *http.Request, key string) (time.Time, bool) {
 	raw := r.URL.Query().Get(key)
 	if raw == "" {
@@ -269,16 +244,6 @@ func parseDateQuery(w http.ResponseWriter, r *http.Request, key string) (time.Ti
 		return time.Time{}, false
 	}
 	return t, true
-}
-
-func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		respond.Error(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON: "+err.Error())
-		return false
-	}
-	return true
 }
 
 func writeError(w http.ResponseWriter, err error) {

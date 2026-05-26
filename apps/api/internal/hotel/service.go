@@ -48,6 +48,15 @@ func (s *Service) Get(ctx context.Context, accountID, id uuid.UUID) (*Hotel, err
 	return s.repo.GetByID(ctx, accountID, id)
 }
 
+// GetNotificationTarget returns the hotel's display name + contact email used
+// by the booking event hook to enqueue notifications. NOT account-scoped:
+// callers (booking.EventHook) have already established tenant context via the
+// booking row. Falls back to the account owner's email when the hotel hasn't
+// set its own contact yet.
+func (s *Service) GetNotificationTarget(ctx context.Context, hotelID uuid.UUID) (*NotificationTarget, error) {
+	return s.repo.GetNotificationTarget(ctx, hotelID)
+}
+
 // OwnedBy returns true if hotelID exists and is owned by accountID. Wired into
 // upload.Service.SetHotelOwnershipCheck so the presign endpoint can reject
 // callers that name another tenant's hotel id.

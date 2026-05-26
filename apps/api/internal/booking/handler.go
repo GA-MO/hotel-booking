@@ -1,7 +1,7 @@
 package booking
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"log/slog"
 	"net/http"
@@ -11,7 +11,15 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/GA-MO/hotel-booking/apps/api/internal/auth"
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/httpx"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/respond"
+)
+
+var (
+	requireRole        = httpx.RequireRole
+	parseUUIDParam     = httpx.ParseUUIDParam
+	decodeJSON         = httpx.DecodeJSON
+	decodeJSONOptional = httpx.DecodeJSONOptional
 )
 
 type Handler struct {
@@ -54,11 +62,12 @@ func (h *Handler) PublicRoutes() chi.Router {
 
 // PublicCreateHandler is used by the parent server to attach `POST
 // /v1/public/hotels/{slug}/bookings` — it needs the slug to resolve the
-// hotel and that mount lives in server.go.
-func (h *Handler) PublicCreateHandler(resolveHotelBySlug func(string) (uuid.UUID, bool)) http.HandlerFunc {
+// hotel and that mount lives in server.go. The resolver takes ctx so it
+// propagates request cancellation.
+func (h *Handler) PublicCreateHandler(resolveHotelBySlug func(ctx context.Context, slug string) (uuid.UUID, bool)) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		slug := chi.URLParam(r, "slug")
-		hotelID, ok := resolveHotelBySlug(slug)
+		hotelID, ok := resolveHotelBySlug(r.Context(), slug)
 		if !ok {
 			respond.Error(w, http.StatusNotFound, "NOT_FOUND", "hotel not found")
 			return
@@ -146,7 +155,9 @@ func (h *Handler) cancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req CancelRequest
-	_ = json.NewDecoder(r.Body).Decode(&req) // body is optional
+	if !decodeJSONOptional(w, r, &req) {
+		return
+	}
 	b, err := h.svc.CancelByHotel(r.Context(), id, req.Reason, identity.UserID)
 	if err != nil {
 		writeError(w, err)
@@ -267,49 +278,9 @@ func (h *Handler) publicPaymentConfirmed(w http.ResponseWriter, r *http.Request)
 
 // ----- helpers -----
 
-func requireRole(allowed ...string) func(http.Handler) http.Handler {
-	allowedSet := make(map[string]struct{}, len(allowed))
-	for _, a := range allowed {
-		allowedSet[a] = struct{}{}
-	}
-	return func(next http.Handler) http.Handler {
-		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			identity, ok := auth.IdentityFrom(r.Context())
-			if !ok {
-				respond.Error(w, http.StatusUnauthorized, "UNAUTHORIZED", "authentication required")
-				return
-			}
-			if _, ok := allowedSet[identity.Role]; !ok {
-				respond.Error(w, http.StatusForbidden, "FORBIDDEN", "insufficient role")
-				return
-			}
-			next.ServeHTTP(w, r)
-		})
-	}
-}
-
+// parseHotelID is a thin convenience wrapper for the /{hotel_id} chi param.
 func parseHotelID(w http.ResponseWriter, r *http.Request) (uuid.UUID, bool) {
 	return parseUUIDParam(w, r, "hotel_id")
-}
-
-func parseUUIDParam(w http.ResponseWriter, r *http.Request, name string) (uuid.UUID, bool) {
-	raw := chi.URLParam(r, name)
-	id, err := uuid.Parse(raw)
-	if err != nil {
-		respond.Error(w, http.StatusBadRequest, "BAD_REQUEST", "invalid "+name)
-		return uuid.Nil, false
-	}
-	return id, true
-}
-
-func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		respond.Error(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON: "+err.Error())
-		return false
-	}
-	return true
 }
 
 func writeError(w http.ResponseWriter, err error) {

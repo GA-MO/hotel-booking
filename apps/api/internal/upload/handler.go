@@ -1,14 +1,16 @@
 package upload
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/go-chi/chi/v5"
 
 	"github.com/GA-MO/hotel-booking/apps/api/internal/auth"
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/httpx"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/respond"
 )
+
+var decodeJSON = httpx.DecodeJSON
 
 type Handler struct {
 	svc *Service
@@ -57,18 +59,6 @@ func (h *Handler) imgproxyURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.Body(w, http.StatusOK, resp)
-}
-
-// ----- helpers -----
-
-func decodeJSON(w http.ResponseWriter, r *http.Request, v any) bool {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil {
-		respond.Error(w, http.StatusBadRequest, "BAD_REQUEST", "invalid JSON: "+err.Error())
-		return false
-	}
-	return true
 }
 
 func writeError(w http.ResponseWriter, err error) {
