@@ -11,9 +11,12 @@ export default function RootLayout({
 }: {
   children: React.ReactNode;
 }) {
+  // The `lang` attribute is set to the platform default; per-page locale is
+  // already applied through Intl formatters and dictionaries, so the static
+  // root attribute only matters for screen readers on the root error pages.
   return (
     <html lang="en">
-      <body className="min-h-screen bg-white text-neutral-900 antialiased">
+      <body className="min-h-screen bg-white font-sans text-neutral-900 antialiased">
         {children}
       </body>
     </html>

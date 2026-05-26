@@ -12,9 +12,9 @@ const nextConfig = {
       { protocol: "https", hostname: "**.cloudflare.com" },
     ],
   },
-  experimental: {
-    typedRoutes: true,
-  },
+  // typedRoutes intentionally disabled — booking-web routes everything through
+  // the dynamic [slug] segment and the friction of casting/aliasing every
+  // dynamic href outweighs the type-safety benefit at this stage.
 };
 
 export default nextConfig;
