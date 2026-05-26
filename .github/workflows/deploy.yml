@@ -1,0 +1,168 @@
+# ============================================================================
+# Production deploy
+# ----------------------------------------------------------------------------
+# Triggered on push to `main`. Builds api / worker / booking-web / admin-web
+# images, pushes to GHCR, then SSHes to the server and rolls them out.
+#
+# Required GitHub Secrets (Settings → Secrets and variables → Actions):
+#   DEPLOY_HOST     hostname or IP of the prod server (e.g. 65.21.x.x)
+#   DEPLOY_USER     SSH user (e.g. deploy)
+#   DEPLOY_SSH_KEY  private SSH key (PEM, no passphrase) for that user
+#
+# Optional secrets:
+#   DEPLOY_PORT     SSH port (defaults to 22)
+#   DEPLOY_PATH     repo path on the server (defaults to /opt/hotel-booking)
+#
+# Skip a deploy by including `[skip deploy]` in the commit message.
+# Images are pushed as both `:<sha>` (immutable) and `:latest` (mutable).
+# Rollback = re-run with IMAGE_TAG=<old-sha> on the server (see infra/README.md).
+# ============================================================================
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write   # push to ghcr.io
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_BASE: ghcr.io/${{ github.repository_owner }}/hotel-booking
+
+jobs:
+  # --------------------------------------------------------------------------
+  guard:
+    name: Should deploy?
+    runs-on: ubuntu-latest
+    if: "!contains(github.event.head_commit.message, '[skip deploy]')"
+    outputs:
+      sha: ${{ steps.vars.outputs.sha }}
+    steps:
+      - id: vars
+        run: echo "sha=${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+  # --------------------------------------------------------------------------
+  build:
+    name: Build & push ${{ matrix.image }}
+    needs: guard
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - image: api
+            context: apps/api
+            dockerfile: apps/api/Dockerfile
+            build_args: |
+              TARGET=api
+          - image: worker
+            context: apps/api
+            dockerfile: apps/api/Dockerfile
+            build_args: |
+              TARGET=worker
+          - image: booking-web
+            context: apps/booking-web
+            dockerfile: apps/booking-web/Dockerfile
+            build_args: ""
+          - image: admin-web
+            context: apps/admin-web
+            dockerfile: apps/admin-web/Dockerfile
+            build_args: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          build-args: ${{ matrix.build_args }}
+          tags: |
+            ${{ env.IMAGE_BASE }}-${{ matrix.image }}:${{ needs.guard.outputs.sha }}
+            ${{ env.IMAGE_BASE }}-${{ matrix.image }}:latest
+          cache-from: type=gha,scope=${{ matrix.image }}
+          cache-to: type=gha,scope=${{ matrix.image }},mode=max
+
+  # --------------------------------------------------------------------------
+  deploy:
+    name: Deploy to production
+    needs: [guard, build]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Setup SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.DEPLOY_SSH_KEY }}" > ~/.ssh/id_deploy
+          chmod 600 ~/.ssh/id_deploy
+          ssh-keyscan -p "${{ secrets.DEPLOY_PORT || '22' }}" \
+              -H "${{ secrets.DEPLOY_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Pull + restart on server
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_PORT: ${{ secrets.DEPLOY_PORT || '22' }}
+          DEPLOY_PATH: ${{ secrets.DEPLOY_PATH || '/opt/hotel-booking' }}
+          IMAGE_TAG: ${{ needs.guard.outputs.sha }}
+          GHCR_OWNER: ${{ github.repository_owner }}
+        run: |
+          ssh -i ~/.ssh/id_deploy -p "$DEPLOY_PORT" \
+              "$DEPLOY_USER@$DEPLOY_HOST" \
+              "IMAGE_TAG='$IMAGE_TAG' GHCR_OWNER='$GHCR_OWNER' bash -s" <<'REMOTE'
+          set -Eeuo pipefail
+          cd "${DEPLOY_PATH:-/opt/hotel-booking}"
+
+          # Refresh source so the Caddyfile + compose file are in sync with main.
+          git fetch --depth=1 origin main
+          git reset --hard origin/main
+
+          # Stamp the deploy with the image tag for this run.
+          export IMAGE_TAG GHCR_OWNER
+
+          # Authenticate to GHCR if we haven't already. The PAT is stored at
+          # ~/.docker/config.json after the first manual `docker login ghcr.io`
+          # on the box. CI doesn't re-auth here — if you rotate the PAT, do it
+          # manually on the server.
+
+          docker compose -f docker-compose.prod.yml --env-file .env.prod pull
+          docker compose -f docker-compose.prod.yml --env-file .env.prod up -d --remove-orphans
+
+          # Surface state for the workflow log.
+          docker compose -f docker-compose.prod.yml ps
+          REMOTE
+
+      - name: Smoke test
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+        run: |
+          # We hit Cloudflare here (the public DNS), so this also verifies the
+          # edge is healthy end-to-end. Allow up to 60s for restart.
+          for i in $(seq 1 12); do
+            if curl -fsSI "https://api.${DEPLOY_HOST_BASE:-${DEPLOY_HOST}}/healthz" >/dev/null 2>&1; then
+              echo "API healthy."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "API did not return healthy within 60s — investigate."
+          exit 1

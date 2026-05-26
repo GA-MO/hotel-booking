@@ -1,0 +1,129 @@
+{
+	# Global options
+	# Email is used by Let's Encrypt for cert expiry notifications. Must be set
+	# via the ACME_EMAIL env var (compose passes it through). Nested placeholder
+	# defaults aren't supported by Caddy, so we require an explicit value.
+	email {$ACME_EMAIL}
+
+	# Log to stdout in JSON so Docker can ship it.
+	log {
+		output stdout
+		format json
+		level INFO
+	}
+
+	# Cloudflare sits in front. Trust its X-Forwarded-For so client IPs are correct.
+	# Keep this list up to date from https://www.cloudflare.com/ips/
+	servers {
+		trusted_proxies static \
+ 173.245.48.0/20 103.21.244.0/22 103.22.200.0/22 103.31.4.0/22 \
+ 141.101.64.0/18 108.162.192.0/18 190.93.240.0/20 188.114.96.0/20 \
+ 197.234.240.0/22 198.41.128.0/17 162.158.0.0/15 104.16.0.0/13 \
+ 104.24.0.0/14 172.64.0.0/13 131.0.72.0/22 \
+ 2400:cb00::/32 2606:4700::/32 2803:f800::/32 2405:b500::/32 \
+ 2405:8100::/32 2a06:98c0::/29 2c0f:f248::/32
+	}
+}
+
+# ----------------------------------------------------------------------------
+# Shared snippets
+# ----------------------------------------------------------------------------
+
+(security_headers) {
+	header {
+		# HSTS — 1 year, include subdomains, eligible for preload.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains; preload"
+		# Defense in depth — Cloudflare also adds these but belt-and-braces.
+		X-Frame-Options "SAMEORIGIN"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=(), interest-cohort=()"
+		# Hide server identity.
+		-Server
+		-X-Powered-By
+	}
+}
+
+(compression) {
+	encode zstd gzip
+}
+
+(common_proxy_headers) {
+	# Caddy already forwards Host, X-Forwarded-For, and X-Forwarded-Proto by
+	# default. We only set X-Real-IP explicitly for upstreams that read it
+	# (some Next.js / Go middlewares prefer it over the X-Forwarded-* chain).
+	header_up X-Real-IP {remote_host}
+}
+
+# ----------------------------------------------------------------------------
+# api.{$DOMAIN} — Go API
+# ----------------------------------------------------------------------------
+
+api.{$DOMAIN} {
+	import security_headers
+	import compression
+
+	reverse_proxy api:8080 {
+		import common_proxy_headers
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# ----------------------------------------------------------------------------
+# book.{$DOMAIN} — guest-facing Next.js booking site
+# (also serves the hotel landing pages at /:slug)
+# ----------------------------------------------------------------------------
+
+book.{$DOMAIN} {
+	import security_headers
+	import compression
+
+	reverse_proxy booking-web:3000 {
+		import common_proxy_headers
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# ----------------------------------------------------------------------------
+# admin.{$DOMAIN} — hotel admin dashboard (Next.js)
+# ----------------------------------------------------------------------------
+
+admin.{$DOMAIN} {
+	import security_headers
+	import compression
+
+	reverse_proxy admin-web:3000 {
+		import common_proxy_headers
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# ----------------------------------------------------------------------------
+# img.{$DOMAIN} — imgproxy (resize/transcode from MinIO)
+# ----------------------------------------------------------------------------
+
+img.{$DOMAIN} {
+	import security_headers
+	import compression
+
+	reverse_proxy imgproxy:8080 {
+		import common_proxy_headers
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
