@@ -223,7 +223,9 @@ function Row({
       <Text size="sm" c="dimmed">
         {label}
       </Text>
-      <Text size="sm" ff={mono ? "monospace" : undefined}>
+      {/* `component="span"` so children like Badge (a div) don't nest inside
+          the default <p> — would otherwise hydration-error. */}
+      <Text component="span" size="sm" ff={mono ? "monospace" : undefined}>
         {value}
       </Text>
     </Group>
