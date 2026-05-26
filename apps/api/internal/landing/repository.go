@@ -240,7 +240,7 @@ func (r *Repository) GetPublishedBySlug(ctx context.Context, slug, locale string
 			lp.id, lp.hotel_id, lp.locale, lp.status, lp.version,
 			lp.branding, lp.sections, lp.seo, lp.tracking,
 			lp.published_at, lp.created_at, lp.updated_at,
-			h.name, h.slug, h.timezone, h.currency
+			h.name, h.slug, h.timezone, h.base_currency
 		FROM landing_pages lp
 		JOIN hotels h ON h.id = lp.hotel_id
 		WHERE h.slug = $1
