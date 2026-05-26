@@ -2,6 +2,7 @@ package booking
 
 import (
 	"context"
+	"log/slog"
 	"net/mail"
 	"strings"
 	"time"
@@ -11,13 +12,54 @@ import (
 
 const defaultHold = 10 * time.Minute
 
+// Event identifies a transition that may trigger external side effects
+// (notifications, analytics, webhooks). Hooks are best-effort: an error
+// from the hook is logged but does not unwind the booking change.
+type Event string
+
+const (
+	EventCreated   Event = "created"
+	EventConfirmed Event = "confirmed"
+	EventCancelled Event = "cancelled"
+	EventCheckedIn Event = "checked_in"
+	EventCheckedOut Event = "checked_out"
+	EventNoShow    Event = "no_show"
+)
+
+// EventHook is invoked after a successful state transition. The booking row
+// passed in reflects the post-transition state. Implementations should do
+// their work quickly — they share the HTTP request's context.
+type EventHook func(ctx context.Context, event Event, b *Booking)
+
 type Service struct {
 	repo *Repository
 	hold time.Duration
+	hook EventHook
 }
 
 func NewService(repo *Repository) *Service {
 	return &Service{repo: repo, hold: defaultHold}
+}
+
+// SetEventHook attaches an after-transition callback. Pass nil to clear.
+// Returns the service so it can be chained at construction.
+func (s *Service) SetEventHook(h EventHook) *Service {
+	s.hook = h
+	return s
+}
+
+// fire is a tiny wrapper that swallows panics from a misbehaving hook so they
+// never affect the caller's HTTP response.
+func (s *Service) fire(ctx context.Context, event Event, b *Booking) {
+	if s.hook == nil || b == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("booking event hook panic", "event", event, "panic", r)
+		}
+	}()
+	s.hook(ctx, event, b)
 }
 
 // CreatePublic builds a booking from a guest checkout (no auth). The hotel
@@ -113,17 +155,29 @@ func (s *Service) create(
 		UTMContent:        req.UTMContent,
 		Referrer:          req.Referrer,
 	}
-	return s.repo.CreatePending(ctx, b, s.hold, req.RoomTypeID)
+	out, err := s.repo.CreatePending(ctx, b, s.hold, req.RoomTypeID)
+	if err == nil {
+		s.fire(ctx, EventCreated, out)
+	}
+	return out, err
 }
 
 // Confirm a pending booking (after payment).
 func (s *Service) Confirm(ctx context.Context, id uuid.UUID, actorType string, actorID *uuid.UUID) (*Booking, error) {
-	return s.repo.Confirm(ctx, id, actorType, actorID)
+	out, err := s.repo.Confirm(ctx, id, actorType, actorID)
+	if err == nil {
+		s.fire(ctx, EventConfirmed, out)
+	}
+	return out, err
 }
 
 // CancelByHotel — staff-initiated cancellation.
 func (s *Service) CancelByHotel(ctx context.Context, id uuid.UUID, reason string, actorID uuid.UUID) (*Booking, error) {
-	return s.repo.Cancel(ctx, id, "hotel", reason, &actorID)
+	out, err := s.repo.Cancel(ctx, id, "hotel", reason, &actorID)
+	if err == nil {
+		s.fire(ctx, EventCancelled, out)
+	}
+	return out, err
 }
 
 // CancelByGuest — guest-initiated cancellation via reference + email verify.
@@ -135,17 +189,33 @@ func (s *Service) CancelByGuest(ctx context.Context, reference, email, reason st
 	if !strings.EqualFold(b.GuestEmail, strings.TrimSpace(email)) {
 		return nil, ErrBookingNotFound
 	}
-	return s.repo.Cancel(ctx, b.ID, "guest", reason, nil)
+	out, err := s.repo.Cancel(ctx, b.ID, "guest", reason, nil)
+	if err == nil {
+		s.fire(ctx, EventCancelled, out)
+	}
+	return out, err
 }
 
 func (s *Service) CheckIn(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (*Booking, error) {
-	return s.repo.CheckIn(ctx, id, &actorID)
+	out, err := s.repo.CheckIn(ctx, id, &actorID)
+	if err == nil {
+		s.fire(ctx, EventCheckedIn, out)
+	}
+	return out, err
 }
 func (s *Service) CheckOut(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (*Booking, error) {
-	return s.repo.CheckOut(ctx, id, &actorID)
+	out, err := s.repo.CheckOut(ctx, id, &actorID)
+	if err == nil {
+		s.fire(ctx, EventCheckedOut, out)
+	}
+	return out, err
 }
 func (s *Service) NoShow(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (*Booking, error) {
-	return s.repo.NoShow(ctx, id, &actorID)
+	out, err := s.repo.NoShow(ctx, id, &actorID)
+	if err == nil {
+		s.fire(ctx, EventNoShow, out)
+	}
+	return out, err
 }
 
 // GetForAccount fetches a booking scoped to the caller's account.

@@ -94,6 +94,13 @@ func TestRoutes_NoMountPanic(t *testing.T) {
 		"GET /v1/public/bookings/{reference}",
 		"POST /v1/public/bookings/{reference}/cancel",
 		"POST /v1/public/hotels/{slug}/bookings",
+		// account-scoped
+		"GET /v1/subscription/",
+		"POST /v1/subscription/payment-method",
+		"POST /v1/subscription/cancel",
+		"GET /v1/notifications/",
+		"GET /v1/notifications/{id}",
+		"POST /v1/notifications/test",
 		// misc
 		"GET /v1/ping",
 	}

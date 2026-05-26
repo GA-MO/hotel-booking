@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/mail"
 	"net/netip"
 	"strings"
@@ -13,13 +14,27 @@ import (
 	"github.com/google/uuid"
 )
 
+// AccountInitFn is invoked once with the new account's id immediately after
+// signup completes. Used to wire up downstream resources (subscription record
+// etc.) without auth depending on those packages. Best-effort: a failure
+// here is logged but does NOT fail the signup.
+type AccountInitFn func(ctx context.Context, accountID uuid.UUID) error
+
 type Service struct {
-	repo *Repository
-	jwt  *JWT
+	repo        *Repository
+	jwt         *JWT
+	accountInit AccountInitFn
 }
 
 func NewService(repo *Repository, jwt *JWT) *Service {
 	return &Service{repo: repo, jwt: jwt}
+}
+
+// SetAccountInit attaches a post-signup hook. Returns the service to allow
+// fluent chaining at construction time. Pass nil to clear.
+func (s *Service) SetAccountInit(fn AccountInitFn) *Service {
+	s.accountInit = fn
+	return s
 }
 
 // RequestMeta is request-time context recorded with sessions (audit + abuse detection).
@@ -50,6 +65,14 @@ func (s *Service) Signup(ctx context.Context, req SignupRequest, meta RequestMet
 	user, err := s.repo.CreateAccountWithOwner(ctx, email, hash, name, req.Locale, req.Country)
 	if err != nil {
 		return nil, err
+	}
+
+	// Best-effort post-signup hook (subscription init etc.). Failure here
+	// must not block signup; the worker's safety-net sweep can backfill later.
+	if s.accountInit != nil {
+		if hookErr := s.accountInit(ctx, user.AccountID); hookErr != nil {
+			slog.Warn("accountInit hook failed", "account_id", user.AccountID, "err", hookErr)
+		}
 	}
 
 	return s.issueTokens(ctx, *user, meta)
