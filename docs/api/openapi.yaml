@@ -70,6 +70,8 @@ tags:
     description: Outbox for email/LINE/SMS messages.
   - name: subscription
     description: Account-scoped subscription and billing state.
+  - name: uploads
+    description: Presigned-URL image upload pipeline (MinIO/B2) + imgproxy delivery URL signing.
 
 # ---------------------------------------------------------------------------
 # Paths
@@ -1064,6 +1066,68 @@ paths:
               schema: { $ref: '#/components/schemas/ErrorEnvelope' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  # ----- uploads -----
+
+  /v1/uploads/presign:
+    post:
+      tags: [uploads]
+      summary: Get a presigned PUT URL to upload an image directly to storage
+      description: |
+        Returns a time-limited (15 min) presigned S3 SigV4 URL bound to a
+        server-generated object key. The browser PUTs the file directly to
+        storage using the URL + the returned headers, then POSTs the
+        `public_url` to one of the existing photo endpoints (e.g.
+        `POST /v1/hotels/{hotel_id}/photos` or `.../room-types/{id}/photos`).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PresignRequest' }
+      responses:
+        '200':
+          description: Presigned upload URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/PresignResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: Object storage is not configured on this server
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
+  /v1/uploads/imgproxy-url:
+    post:
+      tags: [uploads]
+      summary: Sign an imgproxy delivery URL for a given source image
+      description: |
+        Returns a signed imgproxy URL of the form
+        `{base}/{signature}/{processing_options}/{base64url(source_url)}`.
+        Signing happens server-side so `IMGPROXY_KEY`/`IMGPROXY_SALT` stay
+        secret. Falls back to imgproxy's `insecure` mode if key/salt are
+        unset (dev only).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ImgproxyRequest' }
+      responses:
+        '200':
+          description: Signed delivery URL
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ImgproxyResponse' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '503':
+          description: imgproxy is not configured on this server
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ErrorEnvelope' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
   # ----- public (unauthenticated) -----
 
   /v1/public/landing/{slug}/{locale}:
@@ -2044,6 +2108,79 @@ components:
       type: object
       properties:
         reason: { type: string }
+
+    # ----- uploads -----
+
+    PresignRequest:
+      type: object
+      required: [kind, content_type, size_bytes]
+      properties:
+        kind:
+          type: string
+          enum: [hotel_photo, room_type_photo]
+        hotel_id:
+          type: [string, 'null']
+          format: uuid
+          description: Recommended when known; embedded in the object key for
+            cleanup-by-prefix. Omit during onboarding wizard's pre-hotel step.
+        content_type:
+          type: string
+          enum: [image/jpeg, image/png, image/webp]
+        size_bytes:
+          type: integer
+          minimum: 1
+          maximum: 10485760
+          description: Maximum 10 MiB.
+
+    PresignResponse:
+      type: object
+      required: [upload_url, object_key, public_url, headers, expires_at]
+      properties:
+        upload_url:
+          type: string
+          format: uri
+          description: PUT this URL with the file body. Single-use, time-limited.
+        object_key:
+          type: string
+          description: '`{account_id}/{hotel_id|no-hotel}/{kind}/{uuid}.{ext}`'
+        public_url:
+          type: string
+          format: uri
+          description: CDN-fronted URL to POST back to the photo CRUD endpoints.
+        headers:
+          type: object
+          additionalProperties: { type: string }
+          description: Headers the browser MUST send on the PUT. Currently `Content-Type`.
+        expires_at:
+          type: string
+          format: date-time
+
+    ImgproxyRequest:
+      type: object
+      required: [source_url]
+      properties:
+        source_url:
+          type: string
+          format: uri
+          description: Storage URL of the original image (the `public_url` from /presign).
+        width: { type: integer, minimum: 0 }
+        height: { type: integer, minimum: 0 }
+        format:
+          type: string
+          enum: [webp, jpg, png, '']
+          description: Output format. Empty = imgproxy default.
+        resize:
+          type: string
+          enum: [fit, fill, auto, '']
+          description: Resize mode. Empty = fit.
+
+    ImgproxyResponse:
+      type: object
+      required: [url]
+      properties:
+        url:
+          type: string
+          format: uri
 
 # ---------------------------------------------------------------------------
 # Default security — every operation requires bearerAuth unless it sets

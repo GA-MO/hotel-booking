@@ -101,6 +101,9 @@ func TestRoutes_NoMountPanic(t *testing.T) {
 		"GET /v1/notifications/",
 		"GET /v1/notifications/{id}",
 		"POST /v1/notifications/test",
+		// uploads
+		"POST /v1/uploads/presign",
+		"POST /v1/uploads/imgproxy-url",
 		// misc
 		"GET /v1/ping",
 	}

@@ -24,6 +24,7 @@ import (
 	"github.com/GA-MO/hotel-booking/apps/api/internal/pricing"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/roomtype"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/subscription"
+	"github.com/GA-MO/hotel-booking/apps/api/internal/upload"
 )
 
 type Server struct {
@@ -42,6 +43,7 @@ type Server struct {
 	bookingHdl      *booking.Handler
 	notificationHdl *notification.Handler
 	subscriptionHdl *subscription.Handler
+	uploadHdl       *upload.Handler
 }
 
 func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) *Server {
@@ -116,6 +118,36 @@ func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog
 		}
 	}
 
+	// Upload pipeline. Both the SigV4 signer and the imgproxy URL signer are
+	// optional dependencies — if creds/keys are missing we still construct
+	// the service so the routes register, but it returns 503 STORAGE_UNAVAILABLE
+	// on every call. This keeps server-startup deterministic in dev where
+	// MinIO/imgproxy aren't always running.
+	storageSigner := upload.NewSigner(upload.SignerConfig{
+		Endpoint:  cfg.StorageEndpoint,
+		Region:    cfg.StorageRegion,
+		Bucket:    cfg.StorageBucket,
+		AccessKey: cfg.StorageAccessKey,
+		SecretKey: cfg.StorageSecretKey,
+	})
+	imgproxySigner, err := upload.NewImgproxy(upload.ImgproxyConfig{
+		BaseURL: cfg.ImgproxyBaseURL,
+		Key:     cfg.ImgproxyKey,
+		Salt:    cfg.ImgproxySalt,
+	})
+	if err != nil {
+		// Bad hex in IMGPROXY_KEY/IMGPROXY_SALT — surface immediately rather
+		// than silently producing broken delivery URLs at runtime.
+		logger.Error("imgproxy signer init failed", "err", err)
+		imgproxySigner = nil
+	}
+	uploadSvc := upload.NewService(upload.ServiceConfig{
+		Signer:        storageSigner,
+		Imgproxy:      imgproxySigner,
+		Bucket:        cfg.StorageBucket,
+		PublicBaseURL: cfg.StoragePublicBaseURL,
+	})
+
 	s := &Server{
 		cfg: cfg, db: pool, rdb: rdb, logger: logger, jwt: jwtSvc,
 		authHdl:         auth.NewHandler(authSvc, jwtSvc),
@@ -126,6 +158,7 @@ func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog
 		bookingHdl:      booking.NewHandler(bookingSvc, jwtSvc),
 		notificationHdl: notification.NewHandler(notificationSvc, jwtSvc, notifSender),
 		subscriptionHdl: subscription.NewHandler(subscriptionSvc, jwtSvc),
+		uploadHdl:       upload.NewHandler(uploadSvc, jwtSvc),
 	}
 	s.router = s.routes()
 	return s
@@ -160,9 +193,10 @@ func (s *Server) routes() *chi.Mux {
 		// Top-level hotels CRUD (auth-gated inside the handler).
 		r.Mount("/hotels", s.hotelHdl.Routes())
 
-		// Account-scoped resources (subscription + notifications).
+		// Account-scoped resources (subscription + notifications + uploads).
 		r.Mount("/subscription", s.subscriptionHdl.Routes())
 		r.Mount("/notifications", s.notificationHdl.Routes())
+		r.Mount("/uploads", s.uploadHdl.Routes())
 
 		// Per-hotel sub-resources. Auth is applied once here at the parent
 		// level so each sub-module avoids duplicating RequireAuth. Modules
