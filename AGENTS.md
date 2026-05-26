@@ -118,6 +118,10 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod \
 8. **Public bookings require `hotel.status='live'`.** Admin walk-in path accepts test-mode hotels.
 9. **Date arithmetic.** `check_in_date`, `check_out_date` are `DATE`; check-out is exclusive (`nights = check_out − check_in`). Use hotel timezone, not server time.
 10. **Notifications go through the outbox.** Booking lifecycle fires `notification.Enqueue*` via a hook ([ADR-0008](docs/decisions/0008-outbox-pattern-notifications.md)). Don't call senders synchronously from request handlers.
+11. **`chi` shadows sibling `Mount("/x")` + `Route("/x/{id}")`.** Putting top-level CRUD via `Mount` next to a `Route` for per-id sub-resources at the same parent makes chi pick the sub-tree, leaving the bare `/{id}` handlers unreachable. The fix on this repo: single `Route("/hotels", ...)` group with `AttachCollection` + `AttachByID` (see `internal/hotel/handler.go`).
+12. **DATE columns are `datetypes.Date`, not `time.Time`.** `time.Time` serializes as full RFC3339 and breaks the FE's `YYYY-MM-DD` parser. Use `internal/platform/datetypes.Date` for any column declared `DATE` in SQL (today: `bookings.check_in_date` / `check_out_date`). It also implements `sql.Scanner` so pgx scans transparently.
+13. **Always prefix columns in JOIN-able SELECT lists.** A bare `id` in a constant like `bookingColumns` becomes `42702 ambiguous` the day someone adds a `JOIN hotels` to one of the queries that uses it. Keep the constant prefixed (`b.id, b.reference, ...`) and add `AS b` to every INSERT/UPDATE that returns through it.
+14. **Smoke + integration in CI catch what `go test` cannot.** `scripts/smoke-test.sh` and the `api-integration` workflow job hit real Postgres + real HTTP. If a change touches SQL, route mounting, JSON wire shapes, or the booking state machine, run the smoke locally before pushing — unit tests alone have missed this category of bug repeatedly.
 
 ## Where to add X
 

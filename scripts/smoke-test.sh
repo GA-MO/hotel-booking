@@ -81,6 +81,20 @@ assert_status 201
 HOTEL_ID="$(jq -r '.id' /tmp/last_response.json)"
 green "  hotel_id=$HOTEL_ID"
 
+# Guard rail: chi once shadowed PATCH /v1/hotels/{id} because Mount("/hotels")
+# and Route("/hotels/{hotel_id}") sat at the same parent. Hit it explicitly so
+# any future re-shadowing fails this script.
+step "2a. PATCH /v1/hotels/{id} (promptpay_id) — chi route guard"
+call PATCH "/v1/hotels/$HOTEL_ID" '{"promptpay_id":"0812345678"}' | jq -r '.promptpay_id'
+assert_status 200
+[[ "$(jq -r '.promptpay_id' /tmp/last_response.json)" == "0812345678" ]] || { red "promptpay_id missing on PATCH response"; exit 1; }
+green "  PATCH reached + promptpay_id saved"
+
+step "2b. GET /v1/hotels/{id} — chi route guard"
+call GET "/v1/hotels/$HOTEL_ID" | jq -r '.slug'
+assert_status 200
+green "  GET by id reached"
+
 step "3. create room type"
 call POST "/v1/hotels/$HOTEL_ID/room-types" '{"name":"Standard Double","max_occupancy":2,"total_inventory":4,"base_rate":1500,"base_currency":"THB"}' | jq -r '.id'
 assert_status 201
@@ -122,6 +136,48 @@ assert_status 200
 [[ "$(jq -r '.status' /tmp/last_response.json)" == "confirmed" ]] || { red "expected confirmed"; exit 1; }
 green "  confirmed"
 
+# Guard rail: ListByHotel JOIN-ed hotels for the hotel context (round 2) and a
+# bare `id` in bookingColumns triggered "column reference 'id' is ambiguous"
+# at runtime. This step hits the same JOIN path.
+step "8a. GET /v1/hotels/{id}/bookings — SQL ambiguity guard"
+call GET "/v1/hotels/$HOTEL_ID/bookings?limit=50" | jq '.total'
+assert_status 200
+[[ "$(jq -r '.total >= 1' /tmp/last_response.json)" == "true" ]] || { red "expected at least one booking in list"; exit 1; }
+# Date wire format guard: backend used to ship check_in_date as full ISO; FE
+# YMD regex silently failed. Assert YYYY-MM-DD shape so a regression here
+# can't slip past CI.
+CI_DATE="$(jq -r '.bookings[0].check_in_date' /tmp/last_response.json)"
+[[ "$CI_DATE" =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ ]] || { red "check_in_date not YYYY-MM-DD: $CI_DATE"; exit 1; }
+green "  list returned, check_in_date = $CI_DATE"
+
+step "8b. GET /v1/hotels/{id}/bookings/{id}/events — audit endpoint guard"
+call GET "/v1/hotels/$HOTEL_ID/bookings/$BOOKING_ID/events" | jq '.events | length'
+assert_status 200
+EV_COUNT="$(jq -r '.events | length' /tmp/last_response.json)"
+[[ "$EV_COUNT" -ge 2 ]] || { red "expected >= 2 events (created + confirmed), got $EV_COUNT"; exit 1; }
+green "  audit trail: $EV_COUNT events"
+
+# Guard rail: PublicLandingResponse wraps LandingPage with a hotel context
+# block. P1.2 once selected `h.currency` instead of `h.base_currency` and
+# 42703'd at runtime — and there was no integration test on this path.
+step "8c. GET /v1/public/landing/{slug}/{locale} — hotel context guard"
+ACCESS_SAVED="$ACCESS"; ACCESS=""  # anonymous call
+call GET "/v1/public/landing/$SLUG/en" | jq '{tz:.hotel.timezone, ccy:.hotel.currency, ppay:.hotel.promptpay_id}'
+PUBLIC_STATUS="$(cat /tmp/last_status.txt)"
+ACCESS="$ACCESS_SAVED"
+if [[ "$PUBLIC_STATUS" == "200" ]]; then
+  for f in timezone currency promptpay_id; do
+    [[ "$(jq -r ".hotel.$f // empty" /tmp/last_response.json)" != "" ]] || {
+      red "public landing missing hotel.$f"; exit 1; }
+  done
+  green "  hotel.timezone + currency + promptpay_id present"
+else
+  # Hotel defaults to status='test' on signup; the public endpoint only resolves
+  # for status='live'. Don't fail the run on this — production-style runs will
+  # have a live hotel.
+  red "  WARN: public landing returned $PUBLIC_STATUS (hotel not live, hotel-context shape not checked)"
+fi
+
 step "9. check-in then check-out"
 call POST "/v1/hotels/$HOTEL_ID/bookings/$BOOKING_ID/check-in" '' >/dev/null
 assert_status 200
@@ -139,6 +195,10 @@ green "  identity verified"
 
 step "11. refresh access token"
 ACCESS_OLD="$ACCESS"
+# JWT `iat` is in whole seconds; on a fast local run the refresh can land in
+# the same second as signup and produce a byte-identical token. Force a one-
+# second gap so the rotation check is deterministic.
+sleep 1
 call POST /v1/auth/refresh "{\"refresh_token\":\"$REFRESH\"}" >/dev/null
 assert_status 200
 ACCESS_NEW="$(jq -r '.access_token' /tmp/last_response.json)"

@@ -26,6 +26,45 @@ jobs:
       - run: go build ./...
       - run: go test ./... -race -cover
 
+  api-integration:
+    name: Go API (integration)
+    runs-on: ubuntu-latest
+    # Real Postgres so the TestRepo_* suite catches things the unit tests can't —
+    # ambiguous SQL (the `id` column 42702 we hit in round 2), broken migrations,
+    # JSON-on-the-wire shape changes for columns like check_in_date.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hotel
+          POSTGRES_PASSWORD: hotel
+          POSTGRES_DB: hotel_booking
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hotel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    defaults:
+      run:
+        working-directory: apps/api
+    env:
+      DATABASE_URL: postgres://hotel:hotel@localhost:5432/hotel_booking?sslmode=disable
+      TEST_DATABASE_URL: postgres://hotel:hotel@localhost:5432/hotel_booking?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: apps/api/go.sum
+      - name: Install golang-migrate
+        run: |
+          curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin migrate
+      - run: make migrate-up
+      - run: make test-integration
+
   web:
     name: Web apps
     runs-on: ubuntu-latest
@@ -55,3 +94,89 @@ jobs:
       # `--max-problems` keeps the job green unless we introduce real errors.
       - name: Lint OpenAPI
         run: npx --yes @redocly/cli@latest lint docs/api/openapi.yaml --format=stylish --max-problems=100
+
+  smoke:
+    name: API smoke (HTTP end-to-end)
+    runs-on: ubuntu-latest
+    # Boots the real API binary against a real Postgres + Redis and walks
+    # signup → hotel → room-type → booking → confirm → check-in/out → list
+    # bookings → list events → public landing. Designed to catch the things
+    # `go test` can't reach: chi route shadows, ambiguous SQL in joined
+    # queries, wire-format regressions (e.g. DATE → YYYY-MM-DD).
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: hotel
+          POSTGRES_PASSWORD: hotel
+          POSTGRES_DB: hotel_booking
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U hotel"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgres://hotel:hotel@localhost:5432/hotel_booking?sslmode=disable
+      REDIS_URL: redis://localhost:6379/0
+      JWT_SECRET: ci-smoke-secret-do-not-use-in-prod
+      ENV: development
+      LOG_LEVEL: info
+      API_PORT: "8080"
+      API_CORS_ORIGINS: http://localhost:3000,http://localhost:3001
+      STORAGE_ENDPOINT: http://localhost:9000
+      STORAGE_REGION: us-east-1
+      STORAGE_ACCESS_KEY: minioadmin
+      STORAGE_SECRET_KEY: minioadmin
+      STORAGE_BUCKET: hotel-booking
+      STORAGE_PUBLIC_BASE_URL: http://localhost:9000/hotel-booking
+      IMGPROXY_BASE_URL: http://localhost:8081
+      IMGPROXY_KEY: ""
+      IMGPROXY_SALT: ""
+      EMAIL_FROM: no-reply@example.com
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+          cache-dependency-path: apps/api/go.sum
+      - name: Install golang-migrate
+        run: |
+          curl -fsSL https://github.com/golang-migrate/migrate/releases/download/v4.17.1/migrate.linux-amd64.tar.gz \
+            | sudo tar -xz -C /usr/local/bin migrate
+      - run: make -C apps/api migrate-up
+      - name: Build API
+        run: make -C apps/api build
+      - name: Start API in background
+        run: |
+          apps/api/bin/api > api.log 2>&1 &
+          echo $! > api.pid
+      - name: Wait for /healthz
+        run: |
+          for i in $(seq 1 30); do
+            if curl -fs http://localhost:8080/healthz >/dev/null; then exit 0; fi
+            sleep 1
+          done
+          echo "API never became ready"; cat api.log; exit 1
+      - name: Run smoke
+        run: ./scripts/smoke-test.sh
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f api.pid ]; then kill "$(cat api.pid)" 2>/dev/null || true; fi
+      - name: Upload API log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-log
+          path: api.log
