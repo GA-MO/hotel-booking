@@ -123,4 +123,20 @@ export const en: typeof th = {
   bulk_saved: "Overrides saved",
   bulk_cleared: "Overrides cleared",
   bulk_invalid_rate: "Invalid rate format",
+
+  payment_section: "Payment",
+  promptpay_id: "PromptPay ID",
+  promptpay_hint: "Thai mobile (0812345678), national ID (13 digits), or tax ID (15 chars)",
+
+  booking_timeline: "Timeline",
+  booking_event_created: "Booking created",
+  booking_event_confirmed: "Confirmed",
+  booking_event_cancelled: "Cancelled",
+  booking_event_checked_in: "Checked in",
+  booking_event_checked_out: "Checked out",
+  booking_event_no_show: "Marked no-show",
+  booking_event_expired: "Expired",
+  actor_system: "system",
+  actor_hotel_staff: "staff",
+  actor_guest: "guest",
 };

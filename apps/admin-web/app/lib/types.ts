@@ -57,6 +57,7 @@ export type Hotel = {
   base_currency: string;
   check_in_time: string;
   check_out_time: string;
+  promptpay_id?: string | null;
   kyc_status: HotelKYCStatus;
   status: HotelStatus;
   created_at: string;
@@ -89,6 +90,7 @@ export type HotelUpdateRequest = Partial<{
   base_currency: string;
   check_in_time: string;
   check_out_time: string;
+  promptpay_id: string | null;
 }>;
 
 export type RoomType = {
@@ -271,6 +273,18 @@ export type Booking = {
   confirmed_at?: string | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
+};
+
+// BookingEvent is one row from the append-only audit log. Powers the
+// admin booking-detail timeline. `payload` is opaque JSON per event type.
+export type BookingEvent = {
+  id: string;
+  booking_id: string;
+  event_type: string;
+  actor_type: "system" | "hotel_staff" | "guest";
+  actor_id?: string | null;
+  payload: Record<string, unknown>;
+  created_at: string;
 };
 
 export type BookingCreateRequest = {

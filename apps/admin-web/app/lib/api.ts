@@ -15,6 +15,7 @@ import type {
   AvailabilityResponse,
   Booking,
   BookingCreateRequest,
+  BookingEvent,
   CreatePhotoRequest,
   CreatePricingRuleRequest,
   Hotel,
@@ -246,6 +247,8 @@ export const Bookings = {
     apiRequest<Booking>(`/v1/hotels/${hotelID}/bookings/${id}/check-out`, { method: "POST" }),
   noShow: (hotelID: string, id: string) =>
     apiRequest<Booking>(`/v1/hotels/${hotelID}/bookings/${id}/no-show`, { method: "POST" }),
+  listEvents: (hotelID: string, id: string) =>
+    apiRequest<{ events: BookingEvent[] }>(`/v1/hotels/${hotelID}/bookings/${id}/events`),
 };
 
 // ----- availability -----

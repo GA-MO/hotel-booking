@@ -15,16 +15,27 @@ import {
 import { Bookings, ApiClientError } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/dates";
 import { centsToDisplay } from "@/app/lib/money";
-import { t } from "@/app/i18n";
-import type { Booking } from "@/app/lib/types";
+import { t, type Dict } from "@/app/i18n";
+import type { Booking, BookingEvent } from "@/app/lib/types";
 
 type ActionKey = "confirm" | "checkIn" | "checkOut" | "cancel" | "noShow";
+
+const eventLabelKey: Record<string, string> = {
+  created: "booking_event_created",
+  confirmed: "booking_event_confirmed",
+  cancelled: "booking_event_cancelled",
+  checked_in: "booking_event_checked_in",
+  checked_out: "booking_event_checked_out",
+  no_show: "booking_event_no_show",
+  expired: "booking_event_expired",
+};
 
 export default function BookingDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
   const { activeHotel } = useShell();
   const [booking, setBooking] = useState<Booking | null>(null);
+  const [events, setEvents] = useState<BookingEvent[]>([]);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<ActionKey | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -33,8 +44,12 @@ export default function BookingDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const b = await Bookings.get(activeHotel.id, params.id);
+      const [b, ev] = await Promise.all([
+        Bookings.get(activeHotel.id, params.id),
+        Bookings.listEvents(activeHotel.id, params.id).catch(() => ({ events: [] })),
+      ]);
       setBooking(b);
+      setEvents(ev.events);
     } catch (e) {
       if (e instanceof ApiClientError && e.status === 404) {
         router.replace("/bookings");
@@ -76,6 +91,12 @@ export default function BookingDetailPage() {
         }
       }
       setBooking(updated);
+      try {
+        const refreshed = await Bookings.listEvents(activeHotel.id, booking.id);
+        setEvents(refreshed.events);
+      } catch {
+        // events refresh is best-effort; the action itself already succeeded
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
     } finally {
@@ -96,15 +117,16 @@ export default function BookingDetailPage() {
   const canCancel = ["pending_payment", "confirmed"].includes(booking.status);
   const canNoShow = booking.status === "confirmed";
 
-  // Booking events aren't exposed via the API yet; we approximate a timeline
-  // from the status timestamps that ARE on the booking record.
-  const timeline: Array<{ label: string; at?: string | null }> = [
+  // Synthesized fallback (from booking row timestamps) only kicks in when the
+  // backend's audit endpoint is unreachable or empty — keeps the panel useful
+  // for hotels that wired the UI before the migration applied.
+  const fallbackTimeline = [
     { label: "created", at: booking.created_at },
     { label: "confirmed", at: booking.confirmed_at },
     { label: "checked in", at: booking.checked_in_at },
     { label: "checked out", at: booking.checked_out_at },
     { label: "cancelled", at: booking.cancelled_at },
-  ].filter((e) => e.at);
+  ].filter((e) => e.at) as Array<{ label: string; at: string }>;
 
   return (
     <div>
@@ -234,17 +256,35 @@ export default function BookingDetailPage() {
           </dl>
         </Card>
 
-        <Card title="Timeline" className="lg:col-span-2">
-          <ol className="space-y-2">
-            {timeline.map((e) => (
-              <li key={e.label} className="flex items-baseline gap-3 text-sm">
-                <span className="w-28 capitalize text-neutral-500">
-                  {e.label}
-                </span>
-                <span>{formatDateTime(e.at as string, activeHotel.timezone)}</span>
-              </li>
-            ))}
-          </ol>
+        <Card title={t("booking_timeline")} className="lg:col-span-2">
+          {events.length > 0 ? (
+            <ol className="space-y-2">
+              {events.map((e) => {
+                const labelKey = eventLabelKey[e.event_type];
+                const label = labelKey ? t(labelKey as keyof Dict) : e.event_type;
+                return (
+                  <li key={e.id} className="flex flex-wrap items-baseline gap-3 text-sm">
+                    <span className="w-32 text-neutral-700">{label}</span>
+                    <span className="text-neutral-500">
+                      {formatDateTime(e.created_at, activeHotel.timezone)}
+                    </span>
+                    <span className="text-xs text-neutral-400">
+                      ({t(("actor_" + e.actor_type) as keyof Dict)})
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          ) : (
+            <ol className="space-y-2">
+              {fallbackTimeline.map((e) => (
+                <li key={e.label} className="flex items-baseline gap-3 text-sm">
+                  <span className="w-28 capitalize text-neutral-500">{e.label}</span>
+                  <span>{formatDateTime(e.at, activeHotel.timezone)}</span>
+                </li>
+              ))}
+            </ol>
+          )}
           {booking.cancellation_reason && (
             <p className="mt-3 text-sm text-neutral-600">
               Reason: {booking.cancellation_reason}

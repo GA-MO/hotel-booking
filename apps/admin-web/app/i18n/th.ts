@@ -131,4 +131,20 @@ export const th = {
   bulk_saved: "บันทึกค่าปรับแต่งเรียบร้อย",
   bulk_cleared: "ล้างค่าปรับแต่งเรียบร้อย",
   bulk_invalid_rate: "รูปแบบราคาไม่ถูกต้อง",
+
+  payment_section: "การชำระเงิน",
+  promptpay_id: "PromptPay ID",
+  promptpay_hint: "เบอร์มือถือ (0812345678), เลขบัตรประชาชน (13 หลัก) หรือเลขผู้เสียภาษี (15 หลัก)",
+
+  booking_timeline: "ไทม์ไลน์",
+  booking_event_created: "สร้างการจอง",
+  booking_event_confirmed: "ยืนยันแล้ว",
+  booking_event_cancelled: "ยกเลิก",
+  booking_event_checked_in: "เช็คอินแล้ว",
+  booking_event_checked_out: "เช็คเอาท์แล้ว",
+  booking_event_no_show: "บันทึกไม่มาตามนัด",
+  booking_event_expired: "หมดอายุ",
+  actor_system: "ระบบ",
+  actor_hotel_staff: "พนักงาน",
+  actor_guest: "ผู้เข้าพัก",
 };

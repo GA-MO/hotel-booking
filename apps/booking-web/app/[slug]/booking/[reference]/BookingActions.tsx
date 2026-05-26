@@ -6,27 +6,32 @@ import QRCode from "qrcode";
 import type { Dict } from "../../../i18n";
 import { ApiError, cancelBooking } from "../../../lib/api";
 import { formatMoney, localeFor } from "../../../lib/money";
-import type { Booking } from "../../../lib/types";
+import { buildPromptPayPayload } from "../../../lib/promptpay";
+import type { PublicBookingResponse } from "../../../lib/types";
 
 type Props = {
-  booking: Booking;
+  booking: PublicBookingResponse;
   locale: "th" | "en";
   dict: Dict;
   slug: string;
 };
 
-// canCancel mirrors the backend rule (see booking.Service.CancelByGuest):
-// only pending_payment / confirmed bookings can be cancelled by a guest.
-function canCancel(b: Booking) {
+function canCancel(b: PublicBookingResponse) {
   return b.status === "pending_payment" || b.status === "confirmed";
 }
 
-// payloadFor encodes a placeholder QR payload — booking reference + amount.
-// The real PromptPay EMVCo payload requires the hotel's PromptPay ID which
-// is not yet exposed on the public API; once it is, swap in a proper EMVCo
-// builder here. Until then this still gives the guest a scannable code
-// they can show staff for manual reconciliation.
-function payloadFor(b: Booking): string {
+// payloadFor returns a scannable QR string. When the hotel has a PromptPay ID
+// configured we emit a real EMVCo PromptPay payload (mobile banking apps
+// recognize it natively). Otherwise we fall back to a human-readable string
+// so staff can still reconcile a payment by reference.
+function payloadFor(b: PublicBookingResponse): string {
+  if (b.hotel.promptpay_id) {
+    const real = buildPromptPayPayload({
+      promptpayID: b.hotel.promptpay_id,
+      amountCents: b.total_cents,
+    });
+    if (real) return real;
+  }
   return `PROMPTPAY|${b.reference}|${b.currency}|${b.total_cents}`;
 }
 

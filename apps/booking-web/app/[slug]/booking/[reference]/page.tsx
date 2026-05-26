@@ -2,10 +2,10 @@ import { headers } from "next/headers";
 
 import LanguageSwitcher from "../../../components/LanguageSwitcher";
 import { getDict, resolveLocale } from "../../../i18n";
-import { ApiError, getBooking, getLanding } from "../../../lib/api";
+import { ApiError, getBooking } from "../../../lib/api";
 import { formatRange } from "../../../lib/dates";
 import { formatMoney, localeFor } from "../../../lib/money";
-import type { Booking } from "../../../lib/types";
+import type { PublicBookingResponse } from "../../../lib/types";
 
 import BookingActions from "./BookingActions";
 import LookupForm from "./LookupForm";
@@ -31,29 +31,16 @@ async function tryLoadBooking(reference: string, email: string | undefined) {
   }
 }
 
-// Landing carries the hotel timezone; fetch it best-effort so dates render in
-// hotel-local time. If the hotel isn't live or has no published page for this
-// locale, fall back to UTC.
-async function loadTimezone(slug: string, locale: "th" | "en"): Promise<string | undefined> {
-  try {
-    const landing = await getLanding(slug, locale);
-    return landing.hotel?.timezone;
-  } catch {
-    return undefined;
-  }
-}
-
 function BookingSummary({
   booking,
   locale,
   dict,
-  timezone,
 }: {
-  booking: Booking;
+  booking: PublicBookingResponse;
   locale: "th" | "en";
   dict: ReturnType<typeof getDict>;
-  timezone?: string;
 }) {
+  const timezone = booking.hotel.timezone;
   return (
     <dl className="space-y-3 text-sm">
       <div className="flex justify-between">
@@ -94,10 +81,7 @@ export default async function ConfirmationPage({
   const dict = getDict(locale);
 
   const email = Array.isArray(sp.email) ? sp.email[0] : sp.email;
-  const [{ booking, error }, timezone] = await Promise.all([
-    tryLoadBooking(reference, email),
-    loadTimezone(slug, locale),
-  ]);
+  const { booking, error } = await tryLoadBooking(reference, email);
 
   return (
     <main className="font-sans">
@@ -119,7 +103,7 @@ export default async function ConfirmationPage({
             </h1>
 
             <div className="space-y-6 rounded-xl border border-neutral-200 bg-white p-6">
-              <BookingSummary booking={booking} locale={locale} dict={dict} timezone={timezone} />
+              <BookingSummary booking={booking} locale={locale} dict={dict} />
             </div>
 
             <BookingActions booking={booking} locale={locale} dict={dict} slug={slug} />

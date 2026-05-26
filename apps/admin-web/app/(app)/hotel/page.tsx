@@ -57,6 +57,7 @@ export default function HotelSettingsPage() {
         base_currency: hotel.base_currency,
         check_in_time: hotel.check_in_time,
         check_out_time: hotel.check_out_time,
+        promptpay_id: hotel.promptpay_id ?? null,
       };
       const updated = await Hotels.update(hotel.id, req);
       setHotel(updated);
@@ -203,6 +204,18 @@ export default function HotelSettingsPage() {
             />
           </Field>
         </div>
+      </Card>
+
+      <div className="h-4" />
+
+      <Card title={t("payment_section")}>
+        <Field label={t("promptpay_id")} hint={t("promptpay_hint")}>
+          <TextInput
+            value={hotel.promptpay_id || ""}
+            placeholder="0812345678"
+            onChange={(e) => patch("promptpay_id", e.target.value || null)}
+          />
+        </Field>
       </Card>
 
       <div className="h-4" />

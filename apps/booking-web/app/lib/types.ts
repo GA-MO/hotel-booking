@@ -95,6 +95,7 @@ export type PublicHotelContext = {
   slug: string;
   timezone: string;
   currency: string;
+  promptpay_id?: string;
 };
 
 export type LandingPage = {
@@ -193,6 +194,15 @@ export type Booking = {
   confirmed_at?: string | null;
   checked_in_at?: string | null;
   checked_out_at?: string | null;
+};
+
+// PublicBookingResponse flattens a Booking and adds the hotel context
+// (timezone, currency, promptpay_id) the guest UI needs without a second
+// round-trip. Returned by GET /v1/public/bookings/{reference} and the
+// guest-side cancel endpoint. Backend uses Go struct embedding (allOf in
+// the OpenAPI), so on the wire all Booking fields sit alongside `hotel`.
+export type PublicBookingResponse = Booking & {
+  hotel: PublicHotelContext;
 };
 
 export type BookingCreateRequest = {

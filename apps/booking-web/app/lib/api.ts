@@ -2,6 +2,7 @@ import type {
   Booking,
   BookingCreateRequest,
   LandingPage,
+  PublicBookingResponse,
   PublicCancelRequest,
   QuoteRequest,
   QuoteResponse,
@@ -119,9 +120,12 @@ export function createBooking(
   );
 }
 
-export function getBooking(reference: string, email: string): Promise<Booking> {
+export function getBooking(
+  reference: string,
+  email: string,
+): Promise<PublicBookingResponse> {
   const q = new URLSearchParams({ email });
-  return request<Booking>(
+  return request<PublicBookingResponse>(
     `/v1/public/bookings/${encodeURIComponent(reference)}?${q.toString()}`,
     { method: "GET" },
     { cache: "no-store" },
@@ -131,8 +135,8 @@ export function getBooking(reference: string, email: string): Promise<Booking> {
 export function cancelBooking(
   reference: string,
   body: PublicCancelRequest,
-): Promise<Booking> {
-  return request<Booking>(
+): Promise<PublicBookingResponse> {
+  return request<PublicBookingResponse>(
     `/v1/public/bookings/${encodeURIComponent(reference)}/cancel`,
     { method: "POST", body: JSON.stringify(body) },
     { cache: "no-store" },
