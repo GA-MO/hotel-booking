@@ -1,0 +1,83 @@
+name: hotel-booking-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: hotel
+      POSTGRES_PASSWORD: hotel
+      POSTGRES_DB: hotel_booking
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hotel -d hotel_booking"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  minio:
+    image: minio/minio:latest
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    command: ["server", "/data", "--console-address", ":9001"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 minioadmin minioadmin &&
+      (mc mb local/hotel-booking || true) &&
+      mc anonymous set download local/hotel-booking &&
+      echo 'MinIO bucket ready.'
+      "
+
+  imgproxy:
+    image: darthsim/imgproxy:latest
+    restart: unless-stopped
+    ports:
+      - "8081:8080"
+    environment:
+      IMGPROXY_BIND: ":8080"
+      IMGPROXY_USE_S3: "true"
+      IMGPROXY_S3_ENDPOINT: "http://minio:9000"
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+      IMGPROXY_S3_REGION: us-east-1
+      IMGPROXY_DEVELOPMENT_ERRORS_MODE: "true"
+
+volumes:
+  postgres_data:
+  redis_data:
+  minio_data:

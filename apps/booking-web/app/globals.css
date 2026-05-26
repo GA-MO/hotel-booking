@@ -1,0 +1,11 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --font-sans: "Inter", "Sarabun", system-ui, sans-serif;
+}
+
+html {
+  scroll-behavior: smooth;
+}

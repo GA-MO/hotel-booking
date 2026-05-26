@@ -1,0 +1,6 @@
+DROP TABLE IF EXISTS room_types;
+DROP TABLE IF EXISTS hotels;
+DROP TABLE IF EXISTS users;
+DROP TABLE IF EXISTS accounts;
+
+DROP FUNCTION IF EXISTS set_updated_at();
