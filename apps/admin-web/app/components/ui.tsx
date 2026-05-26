@@ -1,38 +1,80 @@
 "use client";
 
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes, TextareaHTMLAttributes } from "react";
+// Thin wrappers over Mantine v9 primitives. The export surface mirrors what
+// the legacy pages already import (Button, TextInput, Field, Card, Modal,
+// StatusBadge, etc.) so the page-level migration can happen incrementally
+// without breaking the build.
+//
+// For new code, prefer importing directly from "@mantine/core" /
+// "@mantine/notifications" rather than this shim.
+
+import type { ReactNode } from "react";
+
+import {
+  Alert,
+  Badge,
+  Button as MantineButton,
+  Card as MantineCard,
+  Group,
+  Modal as MantineModal,
+  NativeSelect as MantineNativeSelect,
+  Stack,
+  Text,
+  TextInput as MantineTextInput,
+  Textarea as MantineTextarea,
+  Title,
+  type ButtonProps as MantineButtonProps,
+  type ModalProps as MantineModalProps,
+  type NativeSelectProps as MantineNativeSelectProps,
+  type TextInputProps as MantineTextInputProps,
+  type TextareaProps as MantineTextareaProps,
+} from "@mantine/core";
 
 type Variant = "primary" | "secondary" | "danger" | "ghost";
 
-const variants: Record<Variant, string> = {
-  primary:
-    "bg-neutral-900 text-white hover:bg-neutral-800 disabled:bg-neutral-400",
-  secondary:
-    "bg-white text-neutral-900 border border-neutral-300 hover:bg-neutral-100 disabled:opacity-50",
-  danger:
-    "bg-red-600 text-white hover:bg-red-700 disabled:bg-neutral-400",
-  ghost:
-    "bg-transparent text-neutral-700 hover:bg-neutral-100 disabled:opacity-50",
+const variantToMantine: Record<
+  Variant,
+  { variant: MantineButtonProps["variant"]; color?: string }
+> = {
+  primary: { variant: "filled", color: "dark" },
+  secondary: { variant: "default" },
+  danger: { variant: "filled", color: "red" },
+  ghost: { variant: "subtle", color: "gray" },
 };
 
 export function Button({
   variant = "primary",
-  className = "",
   loading,
   children,
+  type,
+  onClick,
+  disabled,
+  className,
   ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
+}: {
   variant?: Variant;
   loading?: boolean;
-}) {
+  children: ReactNode;
+  type?: "button" | "submit" | "reset";
+  onClick?: React.MouseEventHandler<HTMLButtonElement>;
+  disabled?: boolean;
+  className?: string;
+} & Omit<MantineButtonProps, "variant" | "color" | "loading" | "children">) {
+  const v = variantToMantine[variant];
   return (
-    <button
+    <MantineButton
+      type={type}
+      onClick={onClick}
+      disabled={disabled}
+      className={className}
+      loading={loading}
+      variant={v.variant}
+      color={v.color}
+      size="sm"
       {...rest}
-      disabled={rest.disabled || loading}
-      className={`inline-flex items-center justify-center rounded-md px-3.5 py-2 text-sm font-medium transition disabled:cursor-not-allowed ${variants[variant]} ${className}`}
     >
-      {loading ? "…" : children}
-    </button>
+      {children}
+    </MantineButton>
   );
 }
 
@@ -47,56 +89,53 @@ export function Field({
   error?: string;
   children: ReactNode;
 }) {
+  // Mantine inputs carry their own label/error/description. This wrapper is
+  // for the cases where pages still mount a raw <input> inside a Field —
+  // we render a plain block label+hint/error stack.
   return (
-    <label className="block">
+    <Stack gap={4}>
       {label && (
-        <span className="mb-1 block text-sm font-medium text-neutral-700">
+        <Text size="sm" fw={500} c="gray.7">
           {label}
-        </span>
+        </Text>
       )}
       {children}
       {hint && !error && (
-        <span className="mt-1 block text-xs text-neutral-500">{hint}</span>
+        <Text size="xs" c="dimmed">
+          {hint}
+        </Text>
       )}
       {error && (
-        <span className="mt-1 block text-xs text-red-600">{error}</span>
+        <Text size="xs" c="red">
+          {error}
+        </Text>
       )}
-    </label>
+    </Stack>
   );
 }
 
-export function TextInput(props: InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      {...props}
-      className={`w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none focus:ring-1 focus:ring-neutral-900 ${props.className || ""}`}
-    />
-  );
+export function TextInput(props: MantineTextInputProps) {
+  return <MantineTextInput size="sm" {...props} />;
 }
 
-export function TextArea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      {...props}
-      className={`w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm shadow-sm placeholder:text-neutral-400 focus:border-neutral-900 focus:outline-none focus:ring-1 focus:ring-neutral-900 ${props.className || ""}`}
-    />
-  );
+export function TextArea(props: MantineTextareaProps) {
+  return <MantineTextarea size="sm" autosize minRows={3} {...props} />;
 }
 
-export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <select
-      {...props}
-      className={`w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-neutral-900 focus:outline-none focus:ring-1 focus:ring-neutral-900 ${props.className || ""}`}
-    />
-  );
+// Use NativeSelect (renders a real <select>) instead of Mantine's combobox
+// Select. This keeps the legacy `onChange={(e) => setX(e.target.value)}`
+// pattern working everywhere in admin-web. For new code that needs search,
+// keyboard nav, or grouped options, import { Select } from "@mantine/core"
+// directly and use its (value, option) signature.
+export function Select(props: MantineNativeSelectProps) {
+  return <MantineNativeSelect size="sm" {...props} />;
 }
 
 export function Card({
   title,
   actions,
   children,
-  className = "",
+  className,
 }: {
   title?: ReactNode;
   actions?: ReactNode;
@@ -104,77 +143,81 @@ export function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-lg border border-neutral-200 bg-white p-5 shadow-sm ${className}`}
+    <MantineCard
+      withBorder
+      shadow="xs"
+      padding="lg"
+      radius="md"
+      className={className}
     >
       {(title || actions) && (
-        <div className="mb-4 flex items-start justify-between gap-3">
-          {title && (
-            <h2 className="text-base font-semibold text-neutral-900">{title}</h2>
-          )}
-          {actions}
-        </div>
+        <Group justify="space-between" align="flex-start" mb="md" wrap="nowrap">
+          {title && <Title order={3} size="h5">{title}</Title>}
+          {actions && <Group gap="xs">{actions}</Group>}
+        </Group>
       )}
       {children}
-    </div>
+    </MantineCard>
   );
 }
 
-const statusToneMap: Record<string, string> = {
-  pending_payment: "bg-amber-100 text-amber-800",
-  confirmed: "bg-emerald-100 text-emerald-800",
-  cancelled: "bg-red-100 text-red-800",
-  expired: "bg-neutral-200 text-neutral-700",
-  checked_in: "bg-blue-100 text-blue-800",
-  checked_out: "bg-neutral-200 text-neutral-700",
-  no_show: "bg-red-100 text-red-700",
-  completed: "bg-emerald-100 text-emerald-800",
-  draft: "bg-neutral-200 text-neutral-700",
-  published: "bg-emerald-100 text-emerald-800",
-  active: "bg-emerald-100 text-emerald-800",
-  trialing: "bg-blue-100 text-blue-800",
-  trial_ending: "bg-amber-100 text-amber-800",
-  trial_lapsed: "bg-red-100 text-red-800",
-  past_due: "bg-amber-100 text-amber-800",
-  suspended: "bg-red-100 text-red-800",
-  test: "bg-amber-100 text-amber-800",
-  live: "bg-emerald-100 text-emerald-800",
+// Status palette — keep the same value→tone map as before so existing pages
+// look identical. Mantine Badge colors map to its semantic palette.
+const statusToColor: Record<string, string> = {
+  pending_payment: "yellow",
+  confirmed: "teal",
+  cancelled: "red",
+  expired: "gray",
+  checked_in: "blue",
+  checked_out: "gray",
+  no_show: "red",
+  completed: "teal",
+  draft: "gray",
+  published: "teal",
+  active: "teal",
+  trialing: "blue",
+  trial_ending: "yellow",
+  trial_lapsed: "red",
+  past_due: "yellow",
+  suspended: "red",
+  test: "yellow",
+  live: "teal",
 };
 
 export function StatusBadge({ value }: { value: string }) {
-  const tone = statusToneMap[value] || "bg-neutral-100 text-neutral-700";
+  const color = statusToColor[value] || "gray";
   return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${tone}`}
-    >
+    <Badge variant="light" color={color} size="sm" radius="sm">
       {value.replace(/_/g, " ")}
-    </span>
+    </Badge>
   );
 }
 
 export function ErrorBanner({ message }: { message?: string | null }) {
   if (!message) return null;
   return (
-    <div className="rounded-md border border-red-300 bg-red-50 px-3 py-2 text-sm text-red-700">
+    <Alert color="red" radius="md" variant="light">
       {message}
-    </div>
+    </Alert>
   );
 }
 
 export function SuccessBanner({ message }: { message?: string | null }) {
   if (!message) return null;
   return (
-    <div className="rounded-md border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">
+    <Alert color="teal" radius="md" variant="light">
       {message}
-    </div>
+    </Alert>
   );
 }
 
 export function EmptyState({ message }: { message: string }) {
   return (
-    <div className="rounded-md border border-dashed border-neutral-300 bg-neutral-50 px-6 py-12 text-center text-sm text-neutral-500">
-      {message}
-    </div>
+    <Card>
+      <Text ta="center" c="dimmed" size="sm" py="xl">
+        {message}
+      </Text>
+    </Card>
   );
 }
 
@@ -188,15 +231,19 @@ export function PageHeader({
   actions?: ReactNode;
 }) {
   return (
-    <div className="mb-6 flex flex-wrap items-end justify-between gap-3">
+    <Group justify="space-between" align="flex-end" mb="lg" wrap="wrap">
       <div>
-        <h1 className="text-xl font-semibold text-neutral-900">{title}</h1>
+        <Title order={1} size="h3">
+          {title}
+        </Title>
         {description && (
-          <p className="mt-1 text-sm text-neutral-600">{description}</p>
+          <Text size="sm" c="dimmed" mt={4}>
+            {description}
+          </Text>
         )}
       </div>
-      {actions && <div className="flex flex-wrap gap-2">{actions}</div>}
-    </div>
+      {actions && <Group gap="xs">{actions}</Group>}
+    </Group>
   );
 }
 
@@ -205,28 +252,26 @@ export function Modal({
   onClose,
   title,
   children,
+  size,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  size?: MantineModalProps["size"];
 }) {
-  if (!open) return null;
+  // Mantine handles focus trap, portal, ESC-to-close, scroll lock, ARIA roles.
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-4">
-      <div className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <h2 className="text-base font-semibold">{title}</h2>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-900"
-            aria-label="Close"
-          >
-            ×
-          </button>
-        </div>
-        {children}
-      </div>
-    </div>
+    <MantineModal
+      opened={open}
+      onClose={onClose}
+      title={title}
+      centered
+      radius="md"
+      size={size || "lg"}
+      overlayProps={{ backgroundOpacity: 0.5, blur: 2 }}
+    >
+      {children}
+    </MantineModal>
   );
 }

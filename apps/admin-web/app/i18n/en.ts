@@ -101,6 +101,8 @@ export const en: typeof th = {
   next_month: "Next month",
 
   error_generic: "Something went wrong. Please try again.",
+  invalid_email: "Please enter a valid email address",
+  required_field: "This field is required",
   copy: "Copy",
   upload_photo: "Upload photo",
   upload_hint: "JPEG / PNG / WebP, up to 10 MB",

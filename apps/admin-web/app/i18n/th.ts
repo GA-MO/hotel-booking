@@ -107,6 +107,8 @@ export const th = {
 
   // misc
   error_generic: "เกิดข้อผิดพลาด กรุณาลองอีกครั้ง",
+  invalid_email: "รูปแบบอีเมลไม่ถูกต้อง",
+  required_field: "กรุณากรอกข้อมูล",
   copy: "คัดลอก",
   upload_photo: "อัปโหลดรูป",
   upload_hint: "JPEG / PNG / WebP, ไม่เกิน 10 MB",

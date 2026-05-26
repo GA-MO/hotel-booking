@@ -4,24 +4,42 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import {
+  Anchor,
+  Button,
+  Card,
+  PasswordInput,
+  Stack,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
+import { useForm } from "@mantine/form";
+
 import { Auth, ApiClientError } from "@/app/lib/api";
 import { setTokens } from "@/app/lib/auth";
-import { Button, ErrorBanner, Field, TextInput } from "@/app/components/ui";
+import { ErrorBanner } from "@/app/components/ui";
 import { t } from "@/app/i18n";
 
 export default function LoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  const form = useForm({
+    initialValues: { email: "", password: "" },
+    validate: {
+      email: (v) =>
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : t("invalid_email"),
+      password: (v) => (v.length >= 1 ? null : t("required_field")),
+    },
+  });
+
+  async function onSubmit(values: typeof form.values) {
     setError(null);
     setLoading(true);
     try {
-      const res = await Auth.login({ email, password });
+      const res = await Auth.login(values);
       setTokens({
         accessToken: res.access_token,
         refreshToken: res.refresh_token,
@@ -37,41 +55,42 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white p-6 shadow-sm">
-      <h1 className="text-xl font-semibold">{t("login_title")}</h1>
-      <p className="mt-1 text-sm text-neutral-600">{t("login_subtitle")}</p>
+    <Card withBorder radius="md" shadow="sm" padding="xl">
+      <Title order={1} size="h3">
+        {t("login_title")}
+      </Title>
+      <Text size="sm" c="dimmed" mt={4}>
+        {t("login_subtitle")}
+      </Text>
 
-      <form onSubmit={onSubmit} className="mt-6 space-y-4">
-        <Field label={t("email")}>
+      <form onSubmit={form.onSubmit(onSubmit)}>
+        <Stack mt="lg" gap="md">
           <TextInput
+            label={t("email")}
             type="email"
-            required
             autoComplete="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-          />
-        </Field>
-        <Field label={t("password")}>
-          <TextInput
-            type="password"
             required
-            autoComplete="current-password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            {...form.getInputProps("email")}
           />
-        </Field>
-        <ErrorBanner message={error} />
-        <Button type="submit" loading={loading} className="w-full">
-          {t("log_in")}
-        </Button>
+          <PasswordInput
+            label={t("password")}
+            autoComplete="current-password"
+            required
+            {...form.getInputProps("password")}
+          />
+          <ErrorBanner message={error} />
+          <Button type="submit" loading={loading} fullWidth color="dark">
+            {t("log_in")}
+          </Button>
+        </Stack>
       </form>
 
-      <p className="mt-6 text-sm text-neutral-600">
+      <Text size="sm" c="dimmed" mt="lg">
         {t("no_account")}{" "}
-        <Link href="/signup" className="font-medium text-neutral-900 underline">
+        <Anchor component={Link} href="/signup" fw={500} c="dark">
           {t("sign_up")}
-        </Link>
-      </p>
-    </div>
+        </Anchor>
+      </Text>
+    </Card>
   );
 }
