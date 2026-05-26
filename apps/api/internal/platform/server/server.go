@@ -13,16 +13,18 @@ import (
 
 	"github.com/GA-MO/hotel-booking/apps/api/internal/auth"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/config"
+	"github.com/GA-MO/hotel-booking/apps/api/internal/hotel"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/respond"
 )
 
 type Server struct {
-	cfg     *config.Config
-	db      *pgxpool.Pool
-	rdb     *redis.Client
-	logger  *slog.Logger
-	router  *chi.Mux
-	authHdl *auth.Handler
+	cfg      *config.Config
+	db       *pgxpool.Pool
+	rdb      *redis.Client
+	logger   *slog.Logger
+	router   *chi.Mux
+	authHdl  *auth.Handler
+	hotelHdl *hotel.Handler
 }
 
 func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) *Server {
@@ -31,12 +33,17 @@ func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog
 	authSvc := auth.NewService(authRepo, jwtSvc)
 	authHdl := auth.NewHandler(authSvc, jwtSvc)
 
+	hotelRepo := hotel.NewRepository(pool)
+	hotelSvc := hotel.NewService(hotelRepo)
+	hotelHdl := hotel.NewHandler(hotelSvc, jwtSvc)
+
 	s := &Server{
-		cfg:     cfg,
-		db:      pool,
-		rdb:     rdb,
-		logger:  logger,
-		authHdl: authHdl,
+		cfg:      cfg,
+		db:       pool,
+		rdb:      rdb,
+		logger:   logger,
+		authHdl:  authHdl,
+		hotelHdl: hotelHdl,
 	}
 	s.router = s.routes()
 	return s
@@ -66,9 +73,9 @@ func (s *Server) routes() *chi.Mux {
 
 	r.Route("/v1", func(r chi.Router) {
 		r.Mount("/auth", s.authHdl.Routes())
+		r.Mount("/hotels", s.hotelHdl.Routes())
 
-		// Phase 1 domains will mount here:
-		//   r.Mount("/hotels", hotel.Routes(...))
+		// Remaining Phase 1 domains will mount here:
 		//   r.Mount("/bookings", booking.Routes(...))
 		//   r.Mount("/landing", landing.Routes(...))
 		//   r.Mount("/subscriptions", billing.Routes(...))
