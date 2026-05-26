@@ -35,12 +35,17 @@ const (
 	TemplateBookingCancelled       Template = "booking_cancelled"
 	TemplateBookingCheckInReminder Template = "booking_check_in_reminder"
 	TemplateBookingPostStay        Template = "booking_post_stay"
+	// TemplatePaymentClaimed fires to hotel staff when a guest taps
+	// "I paid" on the public confirmation page. The hotel still needs to
+	// verify on their bank app — this just routes the heads-up.
+	TemplatePaymentClaimed Template = "booking_payment_claimed"
 )
 
 func (t Template) Valid() bool {
 	switch t {
 	case TemplateBookingCreated, TemplateBookingConfirmed, TemplateBookingCancelled,
-		TemplateBookingCheckInReminder, TemplateBookingPostStay:
+		TemplateBookingCheckInReminder, TemplateBookingPostStay,
+		TemplatePaymentClaimed:
 		return true
 	}
 	return false

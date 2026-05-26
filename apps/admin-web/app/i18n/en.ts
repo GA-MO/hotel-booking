@@ -136,7 +136,12 @@ export const en: typeof th = {
   booking_event_checked_out: "Checked out",
   booking_event_no_show: "Marked no-show",
   booking_event_expired: "Expired",
+  booking_event_payment_claimed: "Guest claims they paid",
   actor_system: "system",
   actor_hotel_staff: "staff",
   actor_guest: "guest",
+
+  go_live: "Go Live",
+  go_live_confirm:
+    "Flip this hotel to LIVE? Guests will be able to find and book it. (Phase 1: self-serve; KYC gating will come with the KYC review flow.)",
 };

@@ -534,6 +534,24 @@ func scanBooking(row pgx.Row, b *Booking) error {
 	return nil
 }
 
+// AppendEvent inserts a row into booking_events outside a transaction. Use
+// this for informational events that don't change booking state (e.g.
+// payment_claimed); state-transition events go through the *_pgx.Tx variant
+// inside Confirm/Cancel/etc.
+func (r *Repository) AppendEvent(ctx context.Context, bookingID uuid.UUID, eventType, actorType string, actorID *uuid.UUID, payload map[string]any) error {
+	var payloadJSON []byte
+	if payload != nil {
+		payloadJSON = mustJSON(payload)
+	} else {
+		payloadJSON = []byte(`{}`)
+	}
+	_, err := r.db.Exec(ctx, `
+		INSERT INTO booking_events (booking_id, event_type, actor_type, actor_id, payload)
+		VALUES ($1, $2, NULLIF($3,''), $4, $5)
+	`, bookingID, eventType, actorType, actorID, payloadJSON)
+	return err
+}
+
 func appendEvent(ctx context.Context, tx pgx.Tx, bookingID uuid.UUID, eventType, actorType string, actorID *uuid.UUID, payload map[string]any) error {
 	var payloadJSON []byte
 	if payload != nil {

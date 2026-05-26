@@ -174,6 +174,8 @@ export const Hotels = {
     apiRequest<{ slug: string; available: boolean }>("/v1/hotels/slug-available", {
       query: { slug },
     }),
+  goLive: (id: string) =>
+    apiRequest<Hotel>(`/v1/hotels/${id}/go-live`, { method: "POST" }),
 };
 
 // ----- room types -----

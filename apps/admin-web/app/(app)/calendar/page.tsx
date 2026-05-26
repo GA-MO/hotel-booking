@@ -19,6 +19,7 @@ import { addDaysISO, daysBetween, monthRange, todayISO } from "@/app/lib/dates";
 import { parseDisplayToCents, rateToCents } from "@/app/lib/money";
 import { t } from "@/app/i18n";
 import type {
+  AvailabilityDay,
   Booking,
   RoomType,
   UpsertAvailabilityItem,
@@ -42,6 +43,19 @@ function toRateOverride(input: string): string | null {
   return `${sign}${Math.floor(abs / 100)}.${(abs % 100).toString().padStart(2, "0")}`;
 }
 
+// hasOverride compares an AvailabilityDay (server-resolved) against the
+// RoomType defaults to decide whether an `availability_overrides` row likely
+// exists for it. Used as a UX hint only — the authoritative state still lives
+// in the DB.
+function hasOverride(rt: RoomType, day: AvailabilityDay): boolean {
+  if (day.closed) return true;
+  if (day.total_inventory !== rt.total_inventory) return true;
+  // Normalise rate to a comparable number; rt.base_rate is `number`, day.rate
+  // is a decimal string like "1800.00".
+  const dayRate = parseFloat(day.rate);
+  return Number.isFinite(dayRate) && Math.abs(dayRate - rt.base_rate) > 0.005;
+}
+
 export default function CalendarPage() {
   const { activeHotel } = useShell();
 
@@ -53,6 +67,7 @@ export default function CalendarPage() {
 
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
+  const [overrides, setOverrides] = useState<Map<SelKey, AvailabilityDay>>(new Map());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalCell, setModalCell] = useState<{ rt: RoomType; date: string } | null>(null);
@@ -76,12 +91,21 @@ export default function CalendarPage() {
   );
 
   async function reload() {
-    const [rt, b] = await Promise.all([
+    const start = days[0];
+    const end = addDaysISO(days[days.length - 1], 1); // exclusive
+    const [rt, b, av] = await Promise.all([
       RoomTypes.list(activeHotel.id),
       Bookings.list(activeHotel.id, { limit: 500 }),
+      // best-effort: availability is a UX hint, not load-bearing
+      Availability.get(activeHotel.id, start, end).catch(
+        () => ({ days: [] } as { days: AvailabilityDay[] }),
+      ),
     ]);
     setRoomTypes(rt.room_types);
     setBookings(b.bookings);
+    const m = new Map<SelKey, AvailabilityDay>();
+    for (const d of av.days) m.set(cellKey(d.room_type_id, d.date), d);
+    setOverrides(m);
   }
 
   useEffect(() => {
@@ -96,7 +120,7 @@ export default function CalendarPage() {
         setLoading(false);
       }
     })();
-  }, [activeHotel.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeHotel.id, now.year, now.monthIndex]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const cells = useMemo(() => {
     const map = new Map<string, Cell>();
@@ -126,6 +150,23 @@ export default function CalendarPage() {
     }
     return map;
   }, [days, roomTypes, bookings]);
+
+  // When the user enters bulk mode and selects exactly ONE cell that already
+  // has an override, pre-fill the bulk form so they can tweak instead of
+  // re-typing. Multi-cell selection keeps inputs empty (write-only semantics).
+  useEffect(() => {
+    if (!bulkMode || selected.size !== 1) return;
+    const [only] = Array.from(selected);
+    const day = overrides.get(only);
+    const [rtID] = only.split("|");
+    const rt = roomTypes.find((r) => r.id === rtID);
+    if (!day || !rt || !hasOverride(rt, day)) return;
+    setBulkInv(day.total_inventory !== rt.total_inventory ? String(day.total_inventory) : "");
+    setBulkRate(
+      Math.abs(parseFloat(day.rate) - rt.base_rate) > 0.005 ? day.rate : "",
+    );
+    setBulkBlocked(day.closed);
+  }, [bulkMode, selected, overrides, roomTypes]);
 
   function shiftMonth(delta: number) {
     setNow(({ year, monthIndex }) => {
@@ -341,14 +382,29 @@ export default function CalendarPage() {
                             : "bg-red-200";
                     const isSel = selected.has(cellKey(rt.id, d));
                     const selRing = isSel ? "ring-2 ring-blue-500 ring-inset" : "";
+                    const day = overrides.get(cellKey(rt.id, d));
+                    const overridden = day ? hasOverride(rt, day) : false;
+                    const title = overridden && day
+                      ? `${rt.name} on ${d} — ${c.used}/${day.total_inventory}` +
+                        (day.closed ? " · BLOCKED" : "") +
+                        (Math.abs(parseFloat(day.rate) - rt.base_rate) > 0.005
+                          ? ` · rate ${day.rate}`
+                          : "")
+                      : `${rt.name} on ${d} — ${c.used}/${rt.total_inventory}`;
                     return (
                       <td
                         key={d}
                         onClick={(e) => onCellClick(rt, d, e)}
-                        className={`min-w-[36px] cursor-pointer border-b border-l border-neutral-100 px-1 py-2 text-center ${tone} ${selRing} hover:ring-1 hover:ring-neutral-400`}
-                        title={`${rt.name} on ${d} — ${c.used}/${rt.total_inventory}`}
+                        className={`relative min-w-[36px] cursor-pointer border-b border-l border-neutral-100 px-1 py-2 text-center ${tone} ${selRing} hover:ring-1 hover:ring-neutral-400`}
+                        title={title}
                       >
                         {c.used > 0 ? c.used : ""}
+                        {overridden && (
+                          <span
+                            aria-hidden
+                            className={`absolute right-0.5 top-0.5 inline-block h-1.5 w-1.5 rounded-full ${day?.closed ? "bg-red-500" : "bg-indigo-500"}`}
+                          />
+                        )}
                       </td>
                     );
                   })}

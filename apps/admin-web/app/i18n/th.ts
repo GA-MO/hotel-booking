@@ -144,7 +144,12 @@ export const th = {
   booking_event_checked_out: "เช็คเอาท์แล้ว",
   booking_event_no_show: "บันทึกไม่มาตามนัด",
   booking_event_expired: "หมดอายุ",
+  booking_event_payment_claimed: "ผู้เข้าพักแจ้งโอนเงินแล้ว",
   actor_system: "ระบบ",
   actor_hotel_staff: "พนักงาน",
   actor_guest: "ผู้เข้าพัก",
+
+  go_live: "เปิดรับจอง",
+  go_live_confirm:
+    "เปิดให้โรงแรมรับการจองสาธารณะตอนนี้เลยใช่ไหม? guest จะค้นหาและจองได้ทันที (Phase 1: self-serve, จะมี KYC review ตามมา)",
 };

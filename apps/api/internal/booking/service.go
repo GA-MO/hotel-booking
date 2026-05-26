@@ -26,6 +26,11 @@ const (
 	EventCheckedIn Event = "checked_in"
 	EventCheckedOut Event = "checked_out"
 	EventNoShow    Event = "no_show"
+	// EventPaymentClaimed fires when the guest taps "I have paid" on the
+	// public confirmation page. It is informational — the booking row's
+	// payment_status does NOT change here; the hotel still has to verify
+	// in their bank app and click Confirm.
+	EventPaymentClaimed Event = "payment_claimed"
 )
 
 // EventHook is invoked after a successful state transition. The booking row
@@ -199,6 +204,31 @@ func (s *Service) CancelByGuest(ctx context.Context, reference, email, reason st
 	}
 	s.fire(ctx, EventCancelled, out)
 	return &PublicBookingResponse{Booking: *out, Hotel: *hctx}, nil
+}
+
+// MarkPaymentClaimed is fired by the guest tapping "I have paid" on the
+// public confirmation page. It does NOT change booking state — the hotel
+// still needs to verify and Confirm. We append a booking_event so the admin
+// timeline reflects the claim, and fire the EventPaymentClaimed hook so a
+// notification can be enqueued to staff.
+func (s *Service) MarkPaymentClaimed(ctx context.Context, reference, email string) (*PublicBookingResponse, error) {
+	b, hctx, err := s.repo.GetByReferenceWithHotel(ctx, reference)
+	if err != nil {
+		return nil, err
+	}
+	if !strings.EqualFold(b.GuestEmail, strings.TrimSpace(email)) {
+		return nil, ErrBookingNotFound
+	}
+	if b.Status != StatusPendingPayment {
+		// Only meaningful while we're holding the reservation; once confirmed
+		// the hotel has already verified payment.
+		return nil, ErrInvalidStateTransition
+	}
+	if err := s.repo.AppendEvent(ctx, b.ID, string(EventPaymentClaimed), "guest", nil, nil); err != nil {
+		return nil, err
+	}
+	s.fire(ctx, EventPaymentClaimed, b)
+	return &PublicBookingResponse{Booking: *b, Hotel: *hctx}, nil
 }
 
 func (s *Service) CheckIn(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (*Booking, error) {

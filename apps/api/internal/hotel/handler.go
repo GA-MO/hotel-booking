@@ -37,6 +37,7 @@ func (h *Handler) AttachByID(r chi.Router) {
 	r.Get("/", h.get)
 	r.With(requireRole("owner", "manager")).Patch("/", h.update)
 	r.With(requireRole("owner")).Delete("/", h.delete)
+	r.With(requireRole("owner")).Post("/go-live", h.goLive)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -106,6 +107,20 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.Empty(w, http.StatusNoContent)
+}
+
+func (h *Handler) goLive(w http.ResponseWriter, r *http.Request) {
+	identity, _ := auth.IdentityFrom(r.Context())
+	id, ok := parseUUIDParam(w, r, "hotel_id")
+	if !ok {
+		return
+	}
+	hotel, err := h.svc.GoLive(r.Context(), identity.AccountID, id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	respond.Body(w, http.StatusOK, hotel)
 }
 
 func (h *Handler) slugAvailable(w http.ResponseWriter, r *http.Request) {
@@ -179,6 +194,8 @@ func writeError(w http.ResponseWriter, err error) {
 		respond.Error(w, http.StatusBadRequest, "INVALID_PROMPTPAY_ID", "promptpay_id must be a 10-digit phone, 13-digit national ID, or 15-char tax ID")
 	case errors.Is(err, ErrForbidden):
 		respond.Error(w, http.StatusForbidden, "FORBIDDEN", "insufficient permission")
+	case errors.Is(err, ErrInvalidStateTransition):
+		respond.Error(w, http.StatusConflict, "INVALID_STATE_TRANSITION", "hotel status cannot transition from its current state")
 	default:
 		respond.Error(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 	}

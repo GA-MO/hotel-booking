@@ -95,6 +95,15 @@ call GET "/v1/hotels/$HOTEL_ID" | jq -r '.slug'
 assert_status 200
 green "  GET by id reached"
 
+step "2c. POST /v1/hotels/{id}/go-live — onboarding unblocker"
+call POST "/v1/hotels/$HOTEL_ID/go-live" "" | jq -r '.status'
+assert_status 200
+[[ "$(jq -r '.status' /tmp/last_response.json)" == "live" ]] || { red "expected status=live, got $(jq -r '.status' /tmp/last_response.json)"; exit 1; }
+# Idempotency: a second call should still 200 + return live (not 409).
+call POST "/v1/hotels/$HOTEL_ID/go-live" "" >/dev/null
+assert_status 200
+green "  status: test → live, idempotent"
+
 step "3. create room type"
 call POST "/v1/hotels/$HOTEL_ID/room-types" '{"name":"Standard Double","max_occupancy":2,"total_inventory":4,"base_rate":1500,"base_currency":"THB"}' | jq -r '.id'
 assert_status 201
@@ -118,13 +127,13 @@ fi
 
 step "6. public quote (3 nights)"
 call POST "/v1/public/quote/$SLUG" "{\"room_type_id\":\"$ROOM_TYPE_ID\",\"check_in\":\"2026-06-01\",\"check_out\":\"2026-06-04\",\"rooms\":1}" | jq '.total // .'
-STATUS_QUOTE="$(cat /tmp/last_status.txt)"
-[[ "$STATUS_QUOTE" == "200" ]] && green "  quote OK" || red "  WARN: quote returned $STATUS_QUOTE (hotel may need status=live)"
+assert_status 200
+green "  quote OK"
 
-step "7. create booking (public — guest)"
-# Hotel is in 'test' mode by default; public bookings require status='live'.
-# Use admin (staff) walk-in path which doesn't require live status.
-call POST "/v1/hotels/$HOTEL_ID/bookings" "{\"room_type_id\":\"$ROOM_TYPE_ID\",\"room_count\":1,\"check_in_date\":\"2026-06-01\",\"check_out_date\":\"2026-06-04\",\"guest_email\":\"guest@example.com\",\"guest_name\":\"Smoke Guest\"}" | jq -r '.reference'
+step "7. create booking (public — guest, requires hotel.status=live from step 2c)"
+ACCESS_SAVED="$ACCESS"; ACCESS=""
+call POST "/v1/public/hotels/$SLUG/bookings" "{\"room_type_id\":\"$ROOM_TYPE_ID\",\"room_count\":1,\"check_in_date\":\"2026-06-01\",\"check_out_date\":\"2026-06-04\",\"guest_email\":\"guest@example.com\",\"guest_name\":\"Smoke Guest\"}" | jq -r '.reference'
+ACCESS="$ACCESS_SAVED"
 assert_status 201
 BOOKING_ID="$(jq -r '.id' /tmp/last_response.json)"
 REFERENCE="$(jq -r '.reference' /tmp/last_response.json)"
@@ -160,23 +169,36 @@ green "  audit trail: $EV_COUNT events"
 # Guard rail: PublicLandingResponse wraps LandingPage with a hotel context
 # block. P1.2 once selected `h.currency` instead of `h.base_currency` and
 # 42703'd at runtime — and there was no integration test on this path.
+step "8d. POST /v1/public/bookings/{ref}/payment-confirmed — guest-claim hook"
+# Need a pending_payment booking (step 7's was just confirmed at step 8).
+# Create a fresh one to exercise the path without unwinding 7/8.
+ACCESS_SAVED="$ACCESS"; ACCESS=""
+call POST "/v1/public/hotels/$SLUG/bookings" "{\"room_type_id\":\"$ROOM_TYPE_ID\",\"room_count\":1,\"check_in_date\":\"2026-06-05\",\"check_out_date\":\"2026-06-06\",\"guest_email\":\"claim@example.com\",\"guest_name\":\"Claim Guest\"}" >/dev/null
+assert_status 201
+CLAIM_REF="$(jq -r '.reference' /tmp/last_response.json)"
+CLAIM_ID="$(jq -r '.id' /tmp/last_response.json)"
+call POST "/v1/public/bookings/$CLAIM_REF/payment-confirmed" '{"email":"claim@example.com"}' >/dev/null
+assert_status 200
+ACCESS="$ACCESS_SAVED"
+# Verify the booking_event was appended (admin endpoint requires auth — re-use ACCESS).
+call GET "/v1/hotels/$HOTEL_ID/bookings/$CLAIM_ID/events" >/dev/null
+assert_status 200
+HAS_CLAIM="$(jq -r '[.events[].event_type] | index("payment_claimed") // "missing"' /tmp/last_response.json)"
+[[ "$HAS_CLAIM" != "missing" ]] || { red "payment_claimed event not in audit trail"; exit 1; }
+green "  guest claim recorded in booking_events"
+
 step "8c. GET /v1/public/landing/{slug}/{locale} — hotel context guard"
 ACCESS_SAVED="$ACCESS"; ACCESS=""  # anonymous call
 call GET "/v1/public/landing/$SLUG/en" | jq '{tz:.hotel.timezone, ccy:.hotel.currency, ppay:.hotel.promptpay_id}'
-PUBLIC_STATUS="$(cat /tmp/last_status.txt)"
 ACCESS="$ACCESS_SAVED"
-if [[ "$PUBLIC_STATUS" == "200" ]]; then
-  for f in timezone currency promptpay_id; do
-    [[ "$(jq -r ".hotel.$f // empty" /tmp/last_response.json)" != "" ]] || {
-      red "public landing missing hotel.$f"; exit 1; }
-  done
-  green "  hotel.timezone + currency + promptpay_id present"
-else
-  # Hotel defaults to status='test' on signup; the public endpoint only resolves
-  # for status='live'. Don't fail the run on this — production-style runs will
-  # have a live hotel.
-  red "  WARN: public landing returned $PUBLIC_STATUS (hotel not live, hotel-context shape not checked)"
-fi
+assert_status 200
+# timezone + currency are required (cannot be empty); promptpay_id is optional
+# at the hotel level so we only check the key is present, not non-empty.
+for f in timezone currency; do
+  [[ "$(jq -r ".hotel.$f // empty" /tmp/last_response.json)" != "" ]] || {
+    red "public landing missing hotel.$f"; exit 1; }
+done
+green "  hotel.timezone + currency present"
 
 step "9. check-in then check-out"
 call POST "/v1/hotels/$HOTEL_ID/bookings/$BOOKING_ID/check-in" '' >/dev/null

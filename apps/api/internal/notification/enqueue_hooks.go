@@ -39,6 +39,15 @@ func (s *Service) EnqueueBookingConfirmed(ctx context.Context, b BookingInfo) (*
 		bookingPayload(b, nil), "booking", &b.ID)
 }
 
+// EnqueuePaymentClaimed fires to HOTEL staff (not guest) when a guest taps
+// the "I have paid" button on the public confirmation page. hotelEmail is
+// the recipient — the room's owner contact.
+func (s *Service) EnqueuePaymentClaimed(ctx context.Context, b BookingInfo, hotelEmail string) (*Notification, error) {
+	return s.Enqueue(ctx, ChannelEmail, TemplatePaymentClaimed, hotelEmail,
+		bookingPayload(b, map[string]any{"guest_email": b.GuestEmail}),
+		"booking", &b.ID)
+}
+
 // EnqueueBookingCancelled fires on cancellation. reason is optional.
 func (s *Service) EnqueueBookingCancelled(ctx context.Context, b BookingInfo, reason string) (*Notification, error) {
 	extra := map[string]any{}

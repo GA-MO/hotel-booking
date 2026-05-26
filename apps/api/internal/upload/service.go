@@ -14,16 +14,29 @@ import (
 // Service generates presigned URLs and signs imgproxy delivery URLs. It is
 // stateless and safe for concurrent use; all per-request data flows
 // through the method arguments.
+// HotelOwnershipCheck verifies the (accountID, hotelID) pair belongs together.
+// Optional — when wired by the server, Presign rejects requests where the
+// caller names a hotel they don't own, preventing object keys from being
+// rooted at another tenant's hotel id (defence-in-depth; the account_id
+// prefix already enforces top-level isolation).
+type HotelOwnershipCheck func(ctx context.Context, accountID, hotelID uuid.UUID) (bool, error)
+
 type Service struct {
 	signer       *Signer
 	imgproxy     *Imgproxy
 	bucket       string
 	publicBase   string // CDN-fronted prefix, e.g. https://cdn.example.com/hotel-photos
 	expiresAfter time.Duration
+	ownsHotel    HotelOwnershipCheck
 
 	// now is injected for tests; production uses time.Now.
 	now func() time.Time
 }
+
+// SetHotelOwnershipCheck wires the optional cross-module hook. Pass
+// hotel.Service.OwnedBy on server boot. Called by Presign whenever the
+// request names a hotel_id.
+func (s *Service) SetHotelOwnershipCheck(fn HotelOwnershipCheck) { s.ownsHotel = fn }
 
 // ServiceConfig wires the runtime dependencies. PublicBaseURL is what we
 // return to the FE as the storage URL of the uploaded file — it's the
@@ -70,6 +83,15 @@ func (s *Service) Presign(ctx context.Context, accountID uuid.UUID, req PresignR
 	}
 	if req.SizeBytes <= 0 || req.SizeBytes > MaxUploadBytes {
 		return nil, ErrSizeExceeded
+	}
+	if req.HotelID != nil && *req.HotelID != uuid.Nil && s.ownsHotel != nil {
+		ok, err := s.ownsHotel(ctx, accountID, *req.HotelID)
+		if err != nil {
+			return nil, fmt.Errorf("verify hotel ownership: %w", err)
+		}
+		if !ok {
+			return nil, ErrHotelNotOwned
+		}
 	}
 
 	objectKey := deriveObjectKey(accountID, req.HotelID, req.Kind, req.ContentType, uuid.New())
@@ -188,6 +210,8 @@ func mapErrorCode(err error) (status int, code, msg string) {
 		return 400, "BAD_REQUEST", "invalid request"
 	case errors.Is(err, ErrNotConfigured):
 		return 503, "STORAGE_UNAVAILABLE", "object storage is not configured on this server"
+	case errors.Is(err, ErrHotelNotOwned):
+		return 404, "NOT_FOUND", "hotel not found"
 	}
 	return 500, "INTERNAL", "internal error"
 }

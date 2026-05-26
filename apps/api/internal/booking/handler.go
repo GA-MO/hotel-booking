@@ -48,6 +48,7 @@ func (h *Handler) PublicRoutes() chi.Router {
 	r := chi.NewRouter()
 	r.Get("/{reference}", h.publicGet)
 	r.Post("/{reference}/cancel", h.publicCancel)
+	r.Post("/{reference}/payment-confirmed", h.publicPaymentConfirmed)
 	return r
 }
 
@@ -241,6 +242,22 @@ func (h *Handler) publicCancel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	b, err := h.svc.CancelByGuest(r.Context(), reference, req.Email, req.Reason)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	respond.Body(w, http.StatusOK, b)
+}
+
+func (h *Handler) publicPaymentConfirmed(w http.ResponseWriter, r *http.Request) {
+	reference := chi.URLParam(r, "reference")
+	var req struct {
+		Email string `json:"email"`
+	}
+	if !decodeJSON(w, r, &req) {
+		return
+	}
+	b, err := h.svc.MarkPaymentClaimed(r.Context(), reference, req.Email)
 	if err != nil {
 		writeError(w, err)
 		return

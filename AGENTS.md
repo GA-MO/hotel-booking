@@ -112,7 +112,7 @@ docker compose -f docker-compose.prod.yml --env-file .env.prod \
 2. **Booking race condition.** `booking.Repository.CreatePending` opens a tx, then `SELECT … FOR UPDATE` on the `room_types` row. **Don't refactor the lock away** — the 10-goroutine integration test (`TestRepo_CreatePending_RaceNoOversell`) catches regressions. See [ADR-0007](docs/decisions/0007-select-for-update-booking-race.md).
 3. **`chi.Mount("/")` conflict.** Two sub-routers at `/` under the same parent panics. `roomtype` and `pricing` both have multiple top-level paths under `/v1/hotels/{hotel_id}` and expose `AttachTo(chi.Router)` for this reason. Follow that pattern.
 4. **Money math.** `*_cents` columns are `int64`. Pricing engine works in satang throughout; the JSON boundary formats to `"1500.00"` strings.
-5. **Resend API is hand-rolled.** No SDK dep. See `internal/notification/sender.go`. If Resend changes their wire format, fix here.
+5. **Resend API is hand-rolled.** No SDK dep. See `internal/notification/sender.go`. If Resend changes their wire format, fix here. To smoke-test real sends locally: `export RESEND_API_KEY=re_xxx EMAIL_FROM=noreply@your-verified-domain` and restart the worker — `cmd/worker/main.go` will switch from `LogSender` to `ResendSender` automatically. The worker's startup log carries `sender=log` vs `sender=resend` so you can tell which one is active.
 6. **Argon2 is slow on purpose.** ~100ms per hash. Tests that hash should do so once or twice per file.
 7. **Auto-mode blocks pushes to `main`.** Use a feature branch + PR.
 8. **Public bookings require `hotel.status='live'`.** Admin walk-in path accepts test-mode hotels.

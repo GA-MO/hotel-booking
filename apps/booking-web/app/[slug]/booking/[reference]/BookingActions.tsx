@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import QRCode from "qrcode";
 
 import type { Dict } from "../../../i18n";
-import { ApiError, cancelBooking } from "../../../lib/api";
+import { ApiError, cancelBooking, markPaymentClaimed } from "../../../lib/api";
 import { formatMoney, localeFor } from "../../../lib/money";
 import { buildPromptPayPayload } from "../../../lib/promptpay";
 import type { PublicBookingResponse } from "../../../lib/types";
@@ -38,9 +38,28 @@ function payloadFor(b: PublicBookingResponse): string {
 export default function BookingActions({ booking, locale, dict, slug }: Props) {
   const [qrSrc, setQrSrc] = useState<string | null>(null);
   const [acknowledgedPaid, setAcknowledgedPaid] = useState(false);
+  const [acknowledging, setAcknowledging] = useState(false);
+  const [acknowledgeError, setAcknowledgeError] = useState<string | null>(null);
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
   const [cancelledNow, setCancelledNow] = useState(false);
+
+  const onAcknowledgePaid = async () => {
+    setAcknowledging(true);
+    setAcknowledgeError(null);
+    try {
+      await markPaymentClaimed(booking.reference, booking.guest_email);
+      setAcknowledgedPaid(true);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setAcknowledgeError(`${dict.common.error_generic} [${err.code}]`);
+      } else {
+        setAcknowledgeError(dict.common.error_generic);
+      }
+    } finally {
+      setAcknowledging(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -109,11 +128,17 @@ export default function BookingActions({ booking, locale, dict, slug }: Props) {
             ) : (
               <button
                 type="button"
-                onClick={() => setAcknowledgedPaid(true)}
-                className="w-full rounded-md bg-[var(--brand-primary,_#111)] px-4 py-3 text-sm font-medium text-white"
+                onClick={onAcknowledgePaid}
+                disabled={acknowledging}
+                className="w-full rounded-md bg-[var(--brand-primary,_#111)] px-4 py-3 text-sm font-medium text-white disabled:opacity-50"
               >
-                {dict.confirmation.payment_paid_button}
+                {acknowledging ? dict.common.loading : dict.confirmation.payment_paid_button}
               </button>
+            )}
+            {acknowledgeError && (
+              <p className="mt-3 rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm text-red-800">
+                {acknowledgeError}
+              </p>
             )}
           </div>
         </section>

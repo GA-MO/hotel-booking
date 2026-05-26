@@ -92,6 +92,22 @@ func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog
 			_, err = notificationSvc.EnqueueBookingConfirmed(ctx, info)
 		case booking.EventCancelled:
 			_, err = notificationSvc.EnqueueBookingCancelled(ctx, info, b.CancellationReason)
+		case booking.EventPaymentClaimed:
+			// Route to hotel staff, not the guest. Look up the contact email
+			// from the hotel row; fall back to the account owner's email
+			// when the hotel has no contact yet (onboarding state).
+			var hotelEmail string
+			_ = pool.QueryRow(ctx, `
+				SELECT COALESCE(NULLIF(h.email,''), u.email)
+				FROM hotels h
+				JOIN users u ON u.account_id = h.account_id AND u.role = 'owner'
+				WHERE h.id = $1
+				LIMIT 1
+			`, b.HotelID).Scan(&hotelEmail)
+			if hotelEmail == "" {
+				return // best-effort; no recipient available
+			}
+			_, err = notificationSvc.EnqueuePaymentClaimed(ctx, info, hotelEmail)
 		}
 		if err != nil {
 			logger.Warn("enqueue booking notification", "event", event, "booking_id", b.ID, "err", err)
@@ -147,6 +163,7 @@ func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog
 		Bucket:        cfg.StorageBucket,
 		PublicBaseURL: cfg.StoragePublicBaseURL,
 	})
+	uploadSvc.SetHotelOwnershipCheck(hotelSvc.OwnedBy)
 
 	s := &Server{
 		cfg: cfg, db: pool, rdb: rdb, logger: logger, jwt: jwtSvc,

@@ -205,6 +205,26 @@ func (r *Repository) Update(ctx context.Context, accountID, id uuid.UUID, patch 
 	return h, nil
 }
 
+// SetStatus flips hotel.status to one of test|live|suspended|archived,
+// scoped to the caller's account. Returns the refreshed Hotel. The state
+// machine itself (which transitions are legal) lives in the service.
+func (r *Repository) SetStatus(ctx context.Context, accountID, id uuid.UUID, status string) (*Hotel, error) {
+	row := r.db.QueryRow(ctx, `
+		UPDATE hotels SET status = $3
+		WHERE id = $1 AND account_id = $2 AND deleted_at IS NULL
+		RETURNING `+selectColumns,
+		id, accountID, status,
+	)
+	h, err := scanHotel(row)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, ErrHotelNotFound
+		}
+		return nil, err
+	}
+	return h, nil
+}
+
 func (r *Repository) SoftDelete(ctx context.Context, accountID, id uuid.UUID) error {
 	tag, err := r.db.Exec(ctx, `
 		UPDATE hotels SET deleted_at = NOW()

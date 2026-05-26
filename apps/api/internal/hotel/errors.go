@@ -10,4 +10,7 @@ var (
 	ErrInvalidPromptPayID = errors.New("invalid promptpay id")
 	ErrForbidden          = errors.New("forbidden")
 	ErrInvalidRequest     = errors.New("invalid request")
+	// ErrInvalidStateTransition is returned when GoLive/Suspend is called
+	// from a status that doesn't allow it (e.g. archived → live).
+	ErrInvalidStateTransition = errors.New("invalid status transition")
 )

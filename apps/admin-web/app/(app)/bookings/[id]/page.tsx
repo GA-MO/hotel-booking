@@ -28,6 +28,7 @@ const eventLabelKey: Record<string, string> = {
   checked_out: "booking_event_checked_out",
   no_show: "booking_event_no_show",
   expired: "booking_event_expired",
+  payment_claimed: "booking_event_payment_claimed",
 };
 
 export default function BookingDetailPage() {

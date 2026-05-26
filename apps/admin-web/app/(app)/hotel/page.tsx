@@ -32,11 +32,28 @@ export default function HotelSettingsPage() {
   const { activeHotel, reloadHotels } = useShell();
   const [hotel, setHotel] = useState<Hotel>(activeHotel);
   const [saving, setSaving] = useState(false);
+  const [goingLive, setGoingLive] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
   function patch<K extends keyof Hotel>(k: K, v: Hotel[K]) {
     setHotel((h) => ({ ...h, [k]: v }));
+  }
+
+  async function goLive() {
+    if (!window.confirm(t("go_live_confirm"))) return;
+    setGoingLive(true);
+    setError(null);
+    try {
+      const updated = await Hotels.goLive(hotel.id);
+      setHotel(updated);
+      setSavedAt(Date.now());
+      await reloadHotels();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("error_generic"));
+    } finally {
+      setGoingLive(false);
+    }
   }
 
   async function save() {
@@ -79,6 +96,11 @@ export default function HotelSettingsPage() {
           <div className="flex items-center gap-2">
             <StatusBadge value={hotel.status} />
             <StatusBadge value={`kyc:${hotel.kyc_status}`} />
+            {hotel.status === "test" && (
+              <Button onClick={goLive} loading={goingLive}>
+                {t("go_live")}
+              </Button>
+            )}
           </div>
         }
       />

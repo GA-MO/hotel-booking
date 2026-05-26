@@ -109,6 +109,28 @@ var templates = map[Template]tpl{
 <p>Thank you for staying with us. We'd love it if you could share your experience.</p>
 {{if .review_url}}<p><a href="{{.review_url}}">Leave a review</a></p>{{end}}`,
 	},
+
+	// To: hotel staff (NOT the guest). Guest has tapped "I paid" on the
+	// confirmation page; hotel still needs to verify on their bank app
+	// and then click Confirm in the admin UI.
+	TemplatePaymentClaimed: {
+		subjectTH: `ผู้เข้าพักแจ้งโอนเงินแล้ว — {{.reference}}`,
+		subjectEN: `Guest claims payment for {{.reference}}`,
+		bodyTH: `<p>ผู้เข้าพักแจ้งว่าโอนเงินสำหรับการจองแล้ว กรุณาตรวจสอบในแอปธนาคารและกดยืนยันในระบบ</p>
+<ul>
+  <li>หมายเลขการจอง: <strong>{{.reference}}</strong></li>
+  <li>ผู้เข้าพัก: {{.guest_name}} ({{.guest_email}})</li>
+  <li>วันเข้าพัก: {{.check_in_date}} ถึง {{.check_out_date}}</li>
+  <li>ยอดที่อ้างว่าชำระ: {{.total}} {{.currency}}</li>
+</ul>`,
+		bodyEN: `<p>The guest tapped "I have paid" on their confirmation page. Please verify in your bank app and confirm in the admin UI.</p>
+<ul>
+  <li>Reference: <strong>{{.reference}}</strong></li>
+  <li>Guest: {{.guest_name}} ({{.guest_email}})</li>
+  <li>Stay: {{.check_in_date}} to {{.check_out_date}}</li>
+  <li>Claimed amount: {{.total}} {{.currency}}</li>
+</ul>`,
+	},
 }
 
 // RenderEmail returns subject, html, and text bodies for the named template,

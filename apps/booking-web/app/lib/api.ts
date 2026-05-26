@@ -142,3 +142,17 @@ export function cancelBooking(
     { cache: "no-store" },
   );
 }
+
+// markPaymentClaimed tells the backend the guest tapped "I have paid". It does
+// NOT mark the booking paid — the hotel still has to verify in their bank app
+// and Confirm. Backend appends a booking_event + enqueues a notification.
+export function markPaymentClaimed(
+  reference: string,
+  email: string,
+): Promise<PublicBookingResponse> {
+  return request<PublicBookingResponse>(
+    `/v1/public/bookings/${encodeURIComponent(reference)}/payment-confirmed`,
+    { method: "POST", body: JSON.stringify({ email }) },
+    { cache: "no-store" },
+  );
+}

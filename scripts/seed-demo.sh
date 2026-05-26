@@ -104,9 +104,10 @@ expect 200
 call POST "/v1/hotels/$HOTEL_ID/landing/en/publish" "" >/dev/null
 expect 200
 
-step "flip hotel to live (dev shortcut — bypasses KYC)"
-docker compose exec -T postgres psql -U hotel hotel_booking -c \
-  "UPDATE hotels SET status='live' WHERE id='$HOTEL_ID';" >/dev/null
+step "go-live (Phase 1 self-serve — KYC gate lands with KYC review flow)"
+call POST "/v1/hotels/$HOTEL_ID/go-live" "" >/dev/null
+expect 200
+[[ "$(jq -r '.status' /tmp/seed_response.json)" == "live" ]] || { echo "expected status=live"; exit 1; }
 green "  hotels.status = 'live'"
 
 # Sanity check the public endpoint.

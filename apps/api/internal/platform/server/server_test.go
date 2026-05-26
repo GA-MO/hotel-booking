@@ -51,6 +51,7 @@ func TestRoutes_NoMountPanic(t *testing.T) {
 		"GET /v1/hotels/{hotel_id}/",
 		"PATCH /v1/hotels/{hotel_id}/",
 		"DELETE /v1/hotels/{hotel_id}/",
+		"POST /v1/hotels/{hotel_id}/go-live",
 		// per-hotel — roomtype
 		"GET /v1/hotels/{hotel_id}/room-types",
 		"POST /v1/hotels/{hotel_id}/room-types",
@@ -94,6 +95,7 @@ func TestRoutes_NoMountPanic(t *testing.T) {
 		"GET /v1/public/landing/{slug}/{locale}",
 		"GET /v1/public/bookings/{reference}",
 		"POST /v1/public/bookings/{reference}/cancel",
+		"POST /v1/public/bookings/{reference}/payment-confirmed",
 		"POST /v1/public/hotels/{slug}/bookings",
 		// account-scoped
 		"GET /v1/subscription/",

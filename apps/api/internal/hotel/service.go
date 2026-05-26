@@ -2,6 +2,7 @@ package hotel
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strings"
 
@@ -47,6 +48,20 @@ func (s *Service) Get(ctx context.Context, accountID, id uuid.UUID) (*Hotel, err
 	return s.repo.GetByID(ctx, accountID, id)
 }
 
+// OwnedBy returns true if hotelID exists and is owned by accountID. Wired into
+// upload.Service.SetHotelOwnershipCheck so the presign endpoint can reject
+// callers that name another tenant's hotel id.
+func (s *Service) OwnedBy(ctx context.Context, accountID, hotelID uuid.UUID) (bool, error) {
+	_, err := s.repo.GetByID(ctx, accountID, hotelID)
+	if err != nil {
+		if errors.Is(err, ErrHotelNotFound) {
+			return false, nil
+		}
+		return false, err
+	}
+	return true, nil
+}
+
 func (s *Service) List(ctx context.Context, accountID uuid.UUID) ([]Hotel, error) {
 	return s.repo.ListByAccount(ctx, accountID)
 }
@@ -79,6 +94,38 @@ func (s *Service) Update(ctx context.Context, accountID, id uuid.UUID, req Updat
 
 func (s *Service) Delete(ctx context.Context, accountID, id uuid.UUID) error {
 	return s.repo.SoftDelete(ctx, accountID, id)
+}
+
+// GoLive flips status from test → live, scoped to the caller's account.
+//
+// **Note**: production should gate this on `kyc_status='approved'`. Phase 1
+// keeps it self-serve so owners can unblock the public booking flow during
+// pilots; the gate moves to KYC review when that flow ships (plan.md §9).
+func (s *Service) GoLive(ctx context.Context, accountID, id uuid.UUID) (*Hotel, error) {
+	h, err := s.repo.GetByID(ctx, accountID, id)
+	if err != nil {
+		return nil, err
+	}
+	switch h.Status {
+	case "live":
+		return h, nil // idempotent — same as if it was already live
+	case "test":
+		return s.repo.SetStatus(ctx, accountID, id, "live")
+	default:
+		return nil, ErrInvalidStateTransition
+	}
+}
+
+// Suspend takes a live hotel back to `suspended` (admin tool, future).
+func (s *Service) Suspend(ctx context.Context, accountID, id uuid.UUID) (*Hotel, error) {
+	h, err := s.repo.GetByID(ctx, accountID, id)
+	if err != nil {
+		return nil, err
+	}
+	if h.Status != "live" {
+		return nil, ErrInvalidStateTransition
+	}
+	return s.repo.SetStatus(ctx, accountID, id, "suspended")
 }
 
 func (s *Service) SlugAvailable(ctx context.Context, slug string) (bool, error) {
