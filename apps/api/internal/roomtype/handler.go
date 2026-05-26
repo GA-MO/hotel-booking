@@ -26,7 +26,19 @@ func NewHandler(svc *Service, jwt *auth.JWT) *Handler {
 func (h *Handler) Routes(jwt *auth.JWT) chi.Router {
 	r := chi.NewRouter()
 	r.Use(auth.RequireAuth(jwt))
+	h.attach(r)
+	return r
+}
 
+// AttachTo registers the room-type + photo routes on an existing chi.Router.
+// Use this when the parent already applies auth middleware and wants to mix
+// these routes with other modules under the same prefix (e.g. /hotels/{hotel_id}).
+// Caller is responsible for ensuring auth.RequireAuth is in place upstream.
+func (h *Handler) AttachTo(r chi.Router) {
+	h.attach(r)
+}
+
+func (h *Handler) attach(r chi.Router) {
 	// room types
 	r.Get("/room-types", h.listRoomTypes)
 	r.With(requireRole("owner", "manager")).Post("/room-types", h.createRoomType)
@@ -44,8 +56,6 @@ func (h *Handler) Routes(jwt *auth.JWT) chi.Router {
 	r.Get("/photos", h.listHotelPhotos)
 	r.With(requireRole("owner", "manager")).Post("/photos", h.createHotelPhoto)
 	r.With(requireRole("owner", "manager")).Delete("/photos/{photo_id}", h.deleteHotelPhoto)
-
-	return r
 }
 
 // ----- room types -----
