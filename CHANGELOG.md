@@ -13,6 +13,19 @@ will be called out under each release.
 
 ## [Unreleased]
 
+### Added — round 2 (post-kickoff)
+
+- **PromptPay end-to-end.** Migration `0009` adds `promptpay_id` to `hotels`; service-side validation accepts 10-digit Thai MSISDN, 13-digit national ID, or 15-char e-wallet/tax-ID (whitespace/dashes tolerated). Admin settings exposes an input field; booking-web confirmation now renders a real EMVCo PromptPay QR (TLV + CRC-16/CCITT-FALSE per the BOT spec, hand-rolled in `app/lib/promptpay.ts`, no new dep). Hotels with no PromptPay ID see the placeholder string they had before.
+- **Booking response carries hotel context.** New `PublicBookingResponse` wraps `Booking` with the same `PublicHotelContext` block landing already returns (name, slug, timezone, currency, promptpay_id). booking-web confirmation page formats dates directly off `booking.hotel.timezone` — the temporary landing-fetch fallback is gone.
+- **`GET /v1/hotels/{hotel_id}/bookings/{id}/events`** returns the append-only audit log for one booking. Roles: owner / manager / front_desk. admin-web booking-detail page renders the real timeline now; the row-timestamp synthesis remains as a fallback when the endpoint is unreachable.
+- **Landing editor uploads.** `apps/admin-web/app/components/SingleImageUpload.tsx` lets staff upload `branding.logo_url` and `seo.og_image_url` directly via the existing `Uploads.upload()` plumbing; `PhotoUploader` is unchanged.
+- **Bulk availability override editor.** `/calendar` now has a Bulk Edit mode (click + shift-range cell selection) with a sticky footer to set inventory / rate / "block sales" across the selection, then save via `Availability.upsert`. `/pricing` redirects to `/calendar` for this — pricing rules and per-day overrides live in different mental models.
+- **Landing integration test.** `apps/api/internal/landing/integration_test.go` covers `GetPublishedBySlug` happy path + 3 negatives. Would have caught the `currency` vs `base_currency` typo fixed in this round.
+
+### Fixed
+
+- `apps/api/internal/landing/repository.go` selected `h.currency` but the hotels table column is `h.base_currency` — `42703` at runtime on the first `/v1/public/landing` call. Caught by code review of P1.2 before any caller hit it.
+
 ### Added — Phase 2 frontend (booking-web, guest)
 
 - `/[slug]` landing page — SSR + ISR (`revalidate=60`), branded sections (hero, gallery, rooms, amenities, location, reviews), SEO metadata, tracking-pixel injection (FB, GA, GTM).
@@ -63,13 +76,13 @@ will be called out under each release.
 
 ### Known gaps (carry-over into next round)
 
-- PromptPay QR payload is a placeholder string — needs the hotel's PromptPay ID exposed on a public endpoint to render a real EMVCo QR.
-- Booking confirmation `GET /v1/public/bookings/{reference}` does not yet expose `timezone` — landing fallback covers it for now.
-- Hotel logo (`landing.branding.logo_url`) and KYC documents in admin-web are still URL text inputs; wire them to `Uploads.upload()` in a follow-up.
+- KYC documents in admin-web are still URL text inputs — needs a different security model than image uploads (private bucket, signed download URLs, retention policy). Out of scope for this round.
 - admin-web tokens still in `localStorage` (XSS-readable); migration to httpOnly cookies via a Next.js route-handler proxy on the P3 backlog.
-- Bulk availability-override editor stubbed; backend client ready.
-- `booking_events` audit trail reconstructed from booking timestamp columns; a dedicated `GET /v1/hotels/{id}/bookings/{id}/events` endpoint would unlock richer history.
 - B2 production bucket CORS rules need a runbook when the prod bucket is provisioned.
+- Orphaned-upload sweeper (presign succeeded → photo attach never followed) — backend worker job, Phase 3.
+- `hotel.OwnedBy(accountID, hotelID)` lightweight check in the presign handler — current tenant isolation isn't broken (object key is rooted at the caller's own account_id) but a defence-in-depth check is cheap.
+- Bulk availability editor does not preload existing per-day overrides into the form (write-only surface). Mixed edits across cells require multiple save cycles.
+- Drag-to-select on the calendar bulk editor (click + shift-range only today).
 
 ---
 
