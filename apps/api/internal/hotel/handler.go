@@ -21,19 +21,22 @@ func NewHandler(svc *Service, jwt *auth.JWT) *Handler {
 	return &Handler{svc: svc, jwt: jwt}
 }
 
-// Routes mounts /v1/hotels. All endpoints require an authenticated identity.
-func (h *Handler) Routes() chi.Router {
-	r := chi.NewRouter()
-	r.Use(auth.RequireAuth(h.jwt))
-
+// AttachCollection registers the collection endpoints (list / create /
+// slug-available) onto a router rooted at /hotels.
+func (h *Handler) AttachCollection(r chi.Router) {
 	r.Get("/", h.list)
 	r.With(requireRole("owner", "manager")).Post("/", h.create)
 	r.Get("/slug-available", h.slugAvailable)
-	r.Get("/{id}", h.get)
-	r.With(requireRole("owner", "manager")).Patch("/{id}", h.update)
-	r.With(requireRole("owner")).Delete("/{id}", h.delete)
+}
 
-	return r
+// AttachByID registers the by-id endpoints (get / update / delete) onto a
+// router rooted at /hotels/{hotel_id}. The parent owns the `{hotel_id}` path
+// param — splitting collection vs by-id this way avoids chi's shadow when a
+// sibling Mount + Route("/{x}") sit at the same parent.
+func (h *Handler) AttachByID(r chi.Router) {
+	r.Get("/", h.get)
+	r.With(requireRole("owner", "manager")).Patch("/", h.update)
+	r.With(requireRole("owner")).Delete("/", h.delete)
 }
 
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
@@ -62,7 +65,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 	identity, _ := auth.IdentityFrom(r.Context())
-	id, ok := parseUUIDParam(w, r, "id")
+	id, ok := parseUUIDParam(w, r, "hotel_id")
 	if !ok {
 		return
 	}
@@ -76,7 +79,7 @@ func (h *Handler) get(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 	identity, _ := auth.IdentityFrom(r.Context())
-	id, ok := parseUUIDParam(w, r, "id")
+	id, ok := parseUUIDParam(w, r, "hotel_id")
 	if !ok {
 		return
 	}
@@ -94,7 +97,7 @@ func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
 
 func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	identity, _ := auth.IdentityFrom(r.Context())
-	id, ok := parseUUIDParam(w, r, "id")
+	id, ok := parseUUIDParam(w, r, "hotel_id")
 	if !ok {
 		return
 	}

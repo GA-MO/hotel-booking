@@ -22,6 +22,7 @@ help:
 
 dev:
 	@mkdir -p .dev
+	@if [[ ! -f .env ]]; then cp .env.example .env && echo "▸ created .env from .env.example"; fi
 	@echo "▸ docker compose up"
 	@docker compose up -d
 	@echo "▸ waiting for postgres"

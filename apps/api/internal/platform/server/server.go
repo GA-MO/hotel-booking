@@ -190,24 +190,28 @@ func (s *Server) routes() *chi.Mux {
 		// Auth (public for signup/login/refresh; me requires bearer token).
 		r.Mount("/auth", s.authHdl.Routes())
 
-		// Top-level hotels CRUD (auth-gated inside the handler).
-		r.Mount("/hotels", s.hotelHdl.Routes())
-
 		// Account-scoped resources (subscription + notifications + uploads).
 		r.Mount("/subscription", s.subscriptionHdl.Routes())
 		r.Mount("/notifications", s.notificationHdl.Routes())
 		r.Mount("/uploads", s.uploadHdl.Routes())
 
-		// Per-hotel sub-resources. Auth is applied once here at the parent
-		// level so each sub-module avoids duplicating RequireAuth. Modules
-		// with multiple top-level paths (roomtype, pricing) AttachTo; others
-		// with a single base path (landing, booking) Mount under that path.
-		r.Route("/hotels/{hotel_id}", func(rr chi.Router) {
+		// Hotels live under one sub-router. Collection endpoints (list /
+		// create / slug-available) attach to /hotels; everything by-id sits
+		// inside Route("/{hotel_id}") so the per-hotel sub-resources (room-
+		// types, landing, bookings, pricing, plus the hotel CRUD itself)
+		// share a single router. Chi shadows when a sibling Mount and a
+		// Route("/{x}") sit at the same parent, so the by-id endpoints have
+		// to live inside that sub-route.
+		r.Route("/hotels", func(rr chi.Router) {
 			rr.Use(auth.RequireAuth(s.jwt))
-			s.roomTypeHdl.AttachTo(rr) // /room-types, /room-types/{id}/..., /photos
-			s.pricingHdl.AttachTo(rr)  // /availability, /pricing-rules
-			rr.Mount("/landing", s.landingHdl.Routes())
-			rr.Mount("/bookings", s.bookingHdl.Routes())
+			s.hotelHdl.AttachCollection(rr) // /, /slug-available
+			rr.Route("/{hotel_id}", func(rrr chi.Router) {
+				s.hotelHdl.AttachByID(rrr)  // /, with PATCH/GET/DELETE
+				s.roomTypeHdl.AttachTo(rrr) // /room-types, /room-types/{id}/..., /photos
+				s.pricingHdl.AttachTo(rrr)  // /availability, /pricing-rules
+				rrr.Mount("/landing", s.landingHdl.Routes())
+				rrr.Mount("/bookings", s.bookingHdl.Routes())
+			})
 		})
 
 		// Public (no auth) — used by booking-web for guest checkout + ISR.

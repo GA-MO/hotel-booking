@@ -6,7 +6,9 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DEV_DIR="$ROOT/.dev"
 
 check() {
-  local name="$1" port="$2" pid_file="$DEV_DIR/$name.pid"
+  local name="$1"
+  local port="$2"
+  local pid_file="$DEV_DIR/$name.pid"
   if [[ -f "$pid_file" ]] && kill -0 "$(cat "$pid_file")" 2>/dev/null; then
     printf "  %-8s ✓ running (pid %s) — http://localhost:%s\n" "$name" "$(cat "$pid_file")" "$port"
   else

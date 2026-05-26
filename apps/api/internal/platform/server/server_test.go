@@ -48,9 +48,9 @@ func TestRoutes_NoMountPanic(t *testing.T) {
 		"GET /v1/hotels/",
 		"POST /v1/hotels/",
 		"GET /v1/hotels/slug-available",
-		"GET /v1/hotels/{id}",
-		"PATCH /v1/hotels/{id}",
-		"DELETE /v1/hotels/{id}",
+		"GET /v1/hotels/{hotel_id}/",
+		"PATCH /v1/hotels/{hotel_id}/",
+		"DELETE /v1/hotels/{hotel_id}/",
 		// per-hotel — roomtype
 		"GET /v1/hotels/{hotel_id}/room-types",
 		"POST /v1/hotels/{hotel_id}/room-types",
