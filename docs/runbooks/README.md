@@ -1,24 +1,28 @@
 # Runbooks
 
-Operational playbooks. Each runbook is a step-by-step procedure for a specific scenario — written so an on-call (or AI assistant) can execute it without having to derive the steps from first principles.
+Step-by-step procedures for operations we've actually performed at least once. We deliberately **don't** pre-write runbooks for hypothetical incidents — speculative steps drift into wrongness and create false confidence.
 
-## Index
+When something happens for the first time, write the runbook **while** you do it.
 
-| # | Scenario | When to use |
+## Current runbooks
+
+| # | Scenario | Verified? |
 |---|---|---|
-| [01](01-deployment.md) | First-time deployment | New server, never deployed before |
-| [02](02-rollback.md) | Rollback a bad deploy | Production is broken and needs to revert |
-| [03](03-restore-from-backup.md) | Restore Postgres from Backblaze B2 | Data loss / corruption / verify backup health |
-| [04](04-incident-overbooking.md) | Resolve a double-booking report | Guest claims room is already occupied |
-| [05](05-rotate-jwt-secret.md) | Rotate `JWT_SECRET` | Suspected token leak or scheduled rotation |
+| [01](01-deployment.md) | First-time deployment | ✅ (production stand-up) |
+| [02](02-rollback.md) | Rollback a bad deploy | ⚠️  not yet executed in anger — verify on next deploy |
 
-## Conventions for new runbooks
+> The authoritative deployment runbook is [`infra/README.md`](../../infra/README.md). The files here are scenario-specific overlays.
+
+## Add a runbook when…
+
+- You just did an operation for the first time → write it down before you forget
+- A near-incident exposed a gap → capture the recovery while it's fresh
+- An incident occurred → write the postmortem AND the recurring fix-path
+
+## Conventions
 
 - Filename: `NN-kebab-case.md` (zero-padded sequence).
-- Each runbook starts with **When to use this**, **Time estimate**, **Risk level (low / medium / high)**.
-- Use numbered steps. Each step has a single concrete action with a verifiable success condition.
-- Commands are copy-pasteable.
-- Include **"If this step fails"** branches for the failure modes you've seen.
-- End with **Postmortem template** if the incident class is recurring.
-
-See [`infra/README.md`](../../infra/README.md) for the full deployment runbook (deployment topology + first-time server setup).
+- Start with **When to use**, **Time estimate**, **Risk level (low / medium / high)**, and a `✅ Verified` or `⚠️ Unverified` marker.
+- Use numbered steps; each step has one concrete action with a verifiable success condition.
+- Include **"If this step fails"** for the failure modes you've actually hit.
+- After the first execution, update the verified marker and any steps that didn't match reality.

@@ -50,7 +50,7 @@ docker compose -f docker-compose.prod.yml stop api worker
 
 # 2. Restore Postgres from the *pre-deploy* dump (taken automatically by the worker
 #    or manually right before the deploy, per infra/README.md §6).
-#    See runbook 03-restore-from-backup.md for the restore procedure.
+#    `infra/README.md` §5.2 has the backup-restore procedure (drop DB, pg_restore from B2 dump).
 
 # 3. With the old schema back, roll the image to PREV (per §1).
 

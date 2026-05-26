@@ -15,12 +15,17 @@ will be called out under each release.
 
 ### Added — documentation
 - `AGENTS.md` at repo root — AI-assistant onboarding (also useful for humans).
-- `docs/decisions/` — 10 ADRs capturing the architectural decisions from `plan.md`.
-- `docs/architecture.md` — deployment topology, request flow, module dependency graph, data model ER.
+- `docs/decisions/` — 4 ADRs for non-obvious / counter-intuitive decisions only (money int64, FOR UPDATE booking race, outbox-pattern notifications, structured-not-page-builder landing). Other decisions live in `plan.md §12`.
 - `docs/glossary.md` — bilingual TH/EN glossary of hospitality, pricing, technical terms.
-- `docs/testing.md` — unit / integration / e2e test conventions, `-p 1` gotcha explained.
-- `docs/runbooks/` — operational playbooks (deployment, rollback, restore-from-backup, overbooking incident, JWT rotation).
+- `docs/runbooks/` — operational playbooks: deployment (verified) + rollback (unverified).
 - `doc.go` in every Go domain package — package-level invariants + ADR cross-refs.
+- `docs/api/openapi.yaml` — hand-written OpenAPI 3.1 spec, ~42 paths.
+
+### Changed — documentation
+- Pared the initial 10 ADRs down to 4 (the rest restated plan.md content); see `docs/decisions/README.md` for the criteria.
+- Trimmed `AGENTS.md` from 7KB → ~5KB (cut sections that duplicated `plan.md`).
+- Removed speculative runbooks (restore-from-backup, overbooking, JWT rotation) — to be written when the operation is performed for the first time.
+- Removed `docs/architecture.md` and `docs/testing.md` — folded into `AGENTS.md`.
 
 ---
 

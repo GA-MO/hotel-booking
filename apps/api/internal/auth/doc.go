@@ -3,7 +3,8 @@
 // rotation, and a `RequireAuth` middleware that injects an [Identity] into
 // the request context.
 //
-// Passwords are hashed with argon2id (see ADR-0005) — never store plaintext
+// Passwords are hashed with argon2id (params live in password.go: m=64MiB,
+// t=3, p=4) — never store plaintext
 // and never log the password field. Access tokens are short-lived HS256 JWTs
 // (~15m); refresh tokens are opaque random strings, SHA-256-hashed before
 // storage in the sessions table. Rotation on every refresh allows detection

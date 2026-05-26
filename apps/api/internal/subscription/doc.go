@@ -1,6 +1,7 @@
 // Package subscription tracks the per-account billing state machine.
 // Phase 1 is state-only — no Stripe/Omise SDK calls yet; payment method
-// metadata is captured for future use (see ADR-0010 for tier strategy).
+// metadata is captured for future use (final tier prices TBD pending
+// customer research; see plan.md §12).
 //
 // State machine:
 //

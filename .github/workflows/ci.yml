@@ -42,3 +42,16 @@ jobs:
       - run: pnpm -r --filter "./apps/*-web" lint
       - run: pnpm -r --filter "./apps/*-web" typecheck
       - run: pnpm -r --filter "./apps/*-web" build
+
+  openapi:
+    name: OpenAPI spec
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Stylistic warnings (operationId, license, etc.) are intentional —
+      # `--max-problems` keeps the job green unless we introduce real errors.
+      - name: Lint OpenAPI
+        run: npx --yes @redocly/cli@latest lint docs/api/openapi.yaml --format=stylish --max-problems=100

@@ -1,55 +1,32 @@
 # Architecture Decision Records
 
-This directory holds the Architecture Decision Records (ADRs) for the
-hotel-booking SaaS. Each file captures one decision that shapes the system —
-the context that forced the choice, the choice itself, the trade-offs we
-accepted, and the alternatives we explicitly rejected.
+Short, dated records of decisions that are **non-obvious** or **counter-intuitive** — the kind a future contributor (human or AI) might be tempted to re-litigate. We **don't** ADR-ify stack picks or industry-standard practices; that bloats the directory and dilutes signal.
 
-For the wider product and architecture context that frames every ADR here,
-see [`/plan.md`](../../plan.md) — particularly §1 (positioning), §2 (stack),
-§6 (booking flow), §7 (landing builder), §8 (pricing), §10 (considerations),
-§11 (anti-features), and §12 (decisions log).
-
-## Format
-
-We use the [MADR](https://adr.github.io/madr/) (Markdown ADR) template, kept
-intentionally short. Each ADR has:
-
-- **Status:** `Proposed` → `Accepted` → `Superseded by ADR-NNNN`
-- **Date:** when the decision was accepted
-- **Deciders:** who owned the call
-- **Related:** plan sections and cross-referenced ADRs
-- **Context / Decision / Consequences / Alternatives / Notes**
-
-ADRs are immutable once `Accepted`. If a decision changes, add a new ADR
-that supersedes the old one and update the old file's status. Do not
-rewrite history.
+For everything else — strategic positioning, stack choices, hosting, pricing tiers — the canonical source is [`plan.md`](../../plan.md), especially **§12 Decisions Log**.
 
 ## Current ADRs
 
-| #    | Title                                                                                            | Status   |
-| ---- | ------------------------------------------------------------------------------------------------ | -------- |
-| 0001 | [Subscription, not commission](0001-subscription-not-commission.md)                              | Accepted |
-| 0002 | [Direct booking, not marketplace](0002-direct-booking-not-marketplace.md)                        | Accepted |
-| 0003 | [Self-host on Hetzner Cloud](0003-self-host-hetzner.md)                                          | Accepted |
-| 0004 | [Go backend with chi + pgx + slog + envconfig](0004-go-backend-chi-pgx.md)                       | Accepted |
-| 0005 | [argon2id for password hashing](0005-argon2id-passwords.md)                                      | Accepted |
-| 0006 | [Money stored as int64 minor units](0006-money-as-int64-minor-units.md)                          | Accepted |
-| 0007 | [SELECT FOR UPDATE to prevent booking race](0007-select-for-update-booking-race.md)              | Accepted |
-| 0008 | [Outbox pattern for notifications](0008-outbox-pattern-notifications.md)                         | Accepted |
-| 0009 | [Structured template, not free-form page builder](0009-structured-template-not-page-builder.md)  | Accepted |
-| 0010 | [Pricing tiers deferred pending customer research](0010-pricing-tiers-deferred.md)               | Accepted |
+| # | Title | Why this is an ADR |
+|---|---|---|
+| [0006](0006-money-as-int64-minor-units.md) | Money as int64 minor units | Counter-intuitive (most defaults to float / NUMERIC) |
+| [0007](0007-select-for-update-booking-race.md) | SELECT FOR UPDATE for booking race | Subtle correctness; easy to refactor away without realising |
+| [0008](0008-outbox-pattern-notifications.md) | Outbox pattern for notifications | Architectural; choosing wrong is hard to back out of |
+| [0009](0009-structured-template-not-page-builder.md) | Structured template, not page builder | Goes against UX instinct (more flexibility ≠ better) |
 
 ## Adding a new ADR
 
-1. Copy the template from any existing ADR.
-2. Pick the next free number (zero-padded to four digits).
-3. Filename: `NNNN-short-kebab-slug.md`.
-4. Start with `Status: Proposed` while it's open for discussion.
-5. Flip to `Status: Accepted` once the team has signed off; commit.
-6. Add a row to the table above.
-7. If this ADR supersedes another, update the old ADR's status to
-   `Superseded by ADR-NNNN` and link both ways.
+Only add an ADR when the decision meets **all three** criteria:
 
-Keep ADRs short (50–120 lines). The point is to capture *why*, not to be a
-spec — implementation details belong in code and in `plan.md`.
+1. **Non-obvious** — a reasonable engineer might genuinely choose otherwise.
+2. **Hard to reverse** — changing it later costs more than writing the ADR.
+3. **Not already covered** in `plan.md` or commit-level notes.
+
+If it fails any of those, write it in a PR description or `plan.md §12` instead.
+
+**Format:** [MADR](https://adr.github.io/madr/) template (see existing ADRs). Status starts at `Proposed` when opened in a PR; flip to `Accepted` on merge.
+**Numbering:** Continue the sequence (next is 0011). Don't re-use the deleted numbers 0001–0005, 0010.
+**Superseding:** When an ADR is overturned, set its status to `Superseded by ADR-NNNN` and add a top-of-file note. Don't delete history.
+
+## History
+
+The first round of ADRs (0001–0010, written 2026-05-26) included six entries that turned out to fail the three-criteria test — they restated decisions already in `plan.md` (positioning, hosting, stack picks) or industry-standard practices (argon2id, deferred pricing) without adding non-obvious context. Those have been removed in favour of pointing at `plan.md §12`. The four kept here genuinely warrant the ceremony.
