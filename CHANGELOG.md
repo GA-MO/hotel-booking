@@ -13,19 +13,63 @@ will be called out under each release.
 
 ## [Unreleased]
 
+### Added — Phase 2 frontend (booking-web, guest)
+
+- `/[slug]` landing page — SSR + ISR (`revalidate=60`), branded sections (hero, gallery, rooms, amenities, location, reviews), SEO metadata, tracking-pixel injection (FB, GA, GTM).
+- `/[slug]/book` checkout — date picker + room-type select + live quote (`POST /v1/public/quote/{slug}`) + guest form + `POST /v1/public/hotels/{slug}/bookings`.
+- `/[slug]/booking/{reference}` confirmation — booking summary, PromptPay QR (`qrcode` lib, placeholder payload), cancel-by-guest, email lookup form.
+- `i18n` TH (default) + EN dictionaries, locale switch via `?lang=` or `Accept-Language`.
+- Shared utilities: `api.ts` (typed fetch with error-envelope handling), `money.ts` (satang → display), `dates.ts` (timezone-aware, exclusive checkout).
+
+### Added — Phase 2 frontend (admin-web, hotel staff)
+
+- Auth: `/login`, `/signup`, `/logout` with refresh-on-401 (serialized in-flight promise) + `localStorage` token storage (httpOnly-cookie migration on P3 backlog).
+- 3-step onboarding wizard (`/onboarding`): hotel basics → first room type → first landing page.
+- Dashboard: today's check-ins, occupancy snapshot, recent bookings, subscription banner.
+- Bookings list + detail with all 5 status actions (confirm / check-in / check-out / cancel / no-show).
+- Calendar month grid with click-to-walk-in modal.
+- Hotel settings, room-types CRUD, landing-page editor (per-locale, branding + sections + SEO + tracking + publish/unpublish), pricing-rules CRUD, subscription view.
+- Multi-hotel switcher, TH/EN locale switch.
+
+### Added — image upload pipeline
+
+- `apps/api/internal/upload/` new Go module — six-file shape + tests.
+- `POST /v1/uploads/presign` — S3 SigV4 presigned PUT URL (hand-rolled, no `aws-sdk-go-v2`; 20 unit tests, 78% coverage; AWS-published key-derivation test vector validates the HMAC chain).
+- `POST /v1/uploads/imgproxy-url` — HMAC-SHA256 signed delivery URL with width/height/format/resize options.
+- Storage config (`STORAGE_*` env vars), imgproxy config (`IMGPROXY_KEY` / `IMGPROXY_SALT`).
+- `docker-compose.yml` already had a `minio-init` one-shot service that creates the bucket with public-read on first boot — left unchanged.
+- admin-web wired: `PhotoUploader` component, room-type photo UI now uploads files directly via presign → PUT → `POST /v1/hotels/{id}/room-types/{id}/photos` with the returned `storage_key`.
+
+### Changed
+
+- **BREAKING:** `GET /v1/public/landing/{slug}/{locale}` now returns `PublicLandingResponse` (= `LandingPage` + `{ hotel: { name, slug, timezone, currency } }`) so the guest UI can format dates in hotel-local time without a second round-trip.
+- booking-web confirmation page fetches landing best-effort to populate the timezone, falling back to UTC if the hotel is unlisted or no published page exists for that locale.
+
 ### Added — documentation
+
 - `AGENTS.md` at repo root — AI-assistant onboarding (also useful for humans).
 - `docs/decisions/` — 4 ADRs for non-obvious / counter-intuitive decisions only (money int64, FOR UPDATE booking race, outbox-pattern notifications, structured-not-page-builder landing). Other decisions live in `plan.md §12`.
 - `docs/glossary.md` — bilingual TH/EN glossary of hospitality, pricing, technical terms.
 - `docs/runbooks/` — operational playbooks: deployment (verified) + rollback (unverified).
 - `doc.go` in every Go domain package — package-level invariants + ADR cross-refs.
-- `docs/api/openapi.yaml` — hand-written OpenAPI 3.1 spec, ~42 paths.
+- `docs/api/openapi.yaml` — hand-written OpenAPI 3.1 spec, now ~44 paths (added `/v1/uploads/*`).
 
 ### Changed — documentation
+
 - Pared the initial 10 ADRs down to 4 (the rest restated plan.md content); see `docs/decisions/README.md` for the criteria.
 - Trimmed `AGENTS.md` from 7KB → ~5KB (cut sections that duplicated `plan.md`).
 - Removed speculative runbooks (restore-from-backup, overbooking, JWT rotation) — to be written when the operation is performed for the first time.
 - Removed `docs/architecture.md` and `docs/testing.md` — folded into `AGENTS.md`.
+
+### Known gaps (carry-over into next round)
+
+- PromptPay QR payload is a placeholder string — needs the hotel's PromptPay ID exposed on a public endpoint to render a real EMVCo QR.
+- Booking confirmation `GET /v1/public/bookings/{reference}` does not yet expose `timezone` — landing fallback covers it for now.
+- Hotel logo (`landing.branding.logo_url`) and KYC documents in admin-web are still URL text inputs; wire them to `Uploads.upload()` in a follow-up.
+- admin-web tokens still in `localStorage` (XSS-readable); migration to httpOnly cookies via a Next.js route-handler proxy on the P3 backlog.
+- Bulk availability-override editor stubbed; backend client ready.
+- `booking_events` audit trail reconstructed from booking timestamp columns; a dedicated `GET /v1/hotels/{id}/bookings/{id}/events` endpoint would unlock richer history.
+- B2 production bucket CORS rules need a runbook when the prod bucket is provisioned.
 
 ---
 
