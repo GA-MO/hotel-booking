@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/GA-MO/hotel-booking/apps/api/internal/booking"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/config"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/db"
 )
@@ -34,10 +35,15 @@ func main() {
 	}
 	defer pool.Close()
 
+	bookingSvc := booking.NewService(booking.NewRepository(pool))
+
 	slog.Info("worker started", "env", cfg.Env)
 
 	tick := time.NewTicker(60 * time.Second)
 	defer tick.Stop()
+
+	// Run once on startup so we don't wait a full minute on boot.
+	runJobs(ctx, bookingSvc)
 
 	for {
 		select {
@@ -45,8 +51,16 @@ func main() {
 			slog.Info("worker shutting down")
 			return
 		case <-tick.C:
-			// TODO: dispatch jobs (Phase 1)
-			slog.Debug("worker tick")
+			runJobs(ctx, bookingSvc)
 		}
+	}
+}
+
+func runJobs(ctx context.Context, bookingSvc *booking.Service) {
+	expired, err := bookingSvc.ExpirePending(ctx)
+	if err != nil {
+		slog.Error("expire pending bookings", "err", err)
+	} else if expired > 0 {
+		slog.Info("expired pending bookings", "count", expired)
 	}
 }
