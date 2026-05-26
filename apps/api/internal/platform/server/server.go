@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"time"
@@ -12,19 +11,33 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"github.com/GA-MO/hotel-booking/apps/api/internal/auth"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/config"
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/respond"
 )
 
 type Server struct {
-	cfg    *config.Config
-	db     *pgxpool.Pool
-	rdb    *redis.Client
-	logger *slog.Logger
-	router *chi.Mux
+	cfg     *config.Config
+	db      *pgxpool.Pool
+	rdb     *redis.Client
+	logger  *slog.Logger
+	router  *chi.Mux
+	authHdl *auth.Handler
 }
 
 func New(cfg *config.Config, pool *pgxpool.Pool, rdb *redis.Client, logger *slog.Logger) *Server {
-	s := &Server{cfg: cfg, db: pool, rdb: rdb, logger: logger}
+	jwtSvc := auth.NewJWT(cfg.JWTSecret, cfg.JWTAccessTTL, cfg.JWTRefreshTTL)
+	authRepo := auth.NewRepository(pool)
+	authSvc := auth.NewService(authRepo, jwtSvc)
+	authHdl := auth.NewHandler(authSvc, jwtSvc)
+
+	s := &Server{
+		cfg:     cfg,
+		db:      pool,
+		rdb:     rdb,
+		logger:  logger,
+		authHdl: authHdl,
+	}
 	s.router = s.routes()
 	return s
 }
@@ -52,14 +65,16 @@ func (s *Server) routes() *chi.Mux {
 	r.Get("/readyz", s.readyz)
 
 	r.Route("/v1", func(r chi.Router) {
-		// Phase 1 domain routers mount here:
-		//   r.Mount("/auth",         auth.Routes(...))
-		//   r.Mount("/hotels",       hotel.Routes(...))
-		//   r.Mount("/bookings",     booking.Routes(...))
-		//   r.Mount("/landing",      landing.Routes(...))
+		r.Mount("/auth", s.authHdl.Routes())
+
+		// Phase 1 domains will mount here:
+		//   r.Mount("/hotels", hotel.Routes(...))
+		//   r.Mount("/bookings", booking.Routes(...))
+		//   r.Mount("/landing", landing.Routes(...))
 		//   r.Mount("/subscriptions", billing.Routes(...))
+
 		r.Get("/ping", func(w http.ResponseWriter, _ *http.Request) {
-			writeJSON(w, http.StatusOK, map[string]string{"pong": "ok"})
+			respond.Body(w, http.StatusOK, map[string]string{"pong": "ok"})
 		})
 	})
 
@@ -67,7 +82,7 @@ func (s *Server) routes() *chi.Mux {
 }
 
 func (s *Server) healthz(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	respond.Body(w, http.StatusOK, map[string]string{"status": "ok"})
 }
 
 func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
@@ -86,11 +101,5 @@ func (s *Server) readyz(w http.ResponseWriter, r *http.Request) {
 		code = http.StatusServiceUnavailable
 	}
 
-	writeJSON(w, code, status)
-}
-
-func writeJSON(w http.ResponseWriter, status int, body any) {
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(body)
+	respond.Body(w, code, status)
 }
