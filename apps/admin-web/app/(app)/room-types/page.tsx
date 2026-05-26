@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 
 import { useShell } from "@/app/components/AppShell";
+import PhotoUploader from "@/app/components/PhotoUploader";
 import {
   Button,
   Card,
@@ -14,9 +15,9 @@ import {
   TextArea,
   TextInput,
 } from "@/app/components/ui";
-import { RoomTypes } from "@/app/lib/api";
+import { Photos, RoomTypes } from "@/app/lib/api";
 import { t } from "@/app/i18n";
-import type { RoomType, RoomTypeCreateRequest } from "@/app/lib/types";
+import type { Photo, RoomType, RoomTypeCreateRequest } from "@/app/lib/types";
 
 const emptyForm: RoomTypeCreateRequest = {
   name: "",
@@ -143,7 +144,7 @@ function RoomTypeFormModal({
   onSaved: () => Promise<void>;
 }) {
   const [form, setForm] = useState<RoomTypeCreateRequest>(emptyForm);
-  const [photoUrls, setPhotoUrls] = useState("");
+  const [photos, setPhotos] = useState<Photo[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -159,12 +160,15 @@ function RoomTypeFormModal({
         base_currency: rt.base_currency,
         display_order: rt.display_order,
       });
+      Photos.listRoomType(hotelID, rt.id)
+        .then((r) => setPhotos(r.photos))
+        .catch(() => setPhotos([]));
     } else {
       setForm({ ...emptyForm, base_currency: defaultCurrency });
+      setPhotos([]);
     }
-    setPhotoUrls("");
     setErr(null);
-  }, [open, rt, defaultCurrency]);
+  }, [open, rt, defaultCurrency, hotelID]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -176,9 +180,6 @@ function RoomTypeFormModal({
       } else {
         await RoomTypes.create(hotelID, form);
       }
-      // Photo URLs are captured here as a placeholder for the real upload
-      // pipeline. The upload module is being built by another agent — once
-      // that lands these URLs will flow through CreatePhotoRequest.storage_key.
       await onSaved();
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("error_generic"));
@@ -246,17 +247,17 @@ function RoomTypeFormModal({
             />
           </Field>
         </div>
-        <Field
-          label="Photo URLs (one per line)"
-          hint="Placeholder until file upload ships. Stored separately via the photo endpoints."
-        >
-          <TextArea
-            rows={2}
-            value={photoUrls}
-            onChange={(e) => setPhotoUrls(e.target.value)}
-            placeholder="https://..."
-          />
-        </Field>
+        {rt && (
+          <Field label={t("upload_photo")}>
+            <PhotoUploader
+              hotelID={hotelID}
+              kind="room_type_photo"
+              roomTypeID={rt.id}
+              photos={photos}
+              onChange={setPhotos}
+            />
+          </Field>
+        )}
         <ErrorBanner message={err} />
         <div className="flex justify-end gap-2 pt-2">
           <Button type="button" variant="secondary" onClick={onClose}>

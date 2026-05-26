@@ -102,4 +102,8 @@ export const en: typeof th = {
 
   error_generic: "Something went wrong. Please try again.",
   copy: "Copy",
+  upload_photo: "Upload photo",
+  upload_hint: "JPEG / PNG / WebP, up to 10 MB",
+  upload_too_large: "file is larger than 10 MB",
+  uploading: "Uploading…",
 };

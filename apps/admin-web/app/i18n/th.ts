@@ -108,4 +108,8 @@ export const th = {
   // misc
   error_generic: "เกิดข้อผิดพลาด กรุณาลองอีกครั้ง",
   copy: "คัดลอก",
+  upload_photo: "อัปโหลดรูป",
+  upload_hint: "JPEG / PNG / WebP, ไม่เกิน 10 MB",
+  upload_too_large: "ไฟล์เกิน 10 MB",
+  uploading: "กำลังอัปโหลด…",
 };

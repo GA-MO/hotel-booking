@@ -124,6 +124,49 @@ export type RoomTypeCreateRequest = {
 
 export type RoomTypeUpdateRequest = Partial<RoomTypeCreateRequest & { enabled: boolean }>;
 
+// ----- photos + uploads -----
+
+export type Photo = {
+  id: string;
+  hotel_id?: string | null;
+  room_type_id?: string | null;
+  storage_key: string;
+  caption?: string;
+  alt_text?: string;
+  width?: number | null;
+  height?: number | null;
+  display_order: number;
+  is_cover: boolean;
+  created_at: string;
+};
+
+export type CreatePhotoRequest = {
+  storage_key: string;
+  caption?: string;
+  alt_text?: string;
+  width?: number | null;
+  height?: number | null;
+  display_order?: number;
+  is_cover?: boolean;
+};
+
+export type UploadKind = "hotel_photo" | "room_type_photo";
+
+export type PresignRequest = {
+  kind: UploadKind;
+  hotel_id?: string;
+  content_type: string;
+  size_bytes: number;
+};
+
+export type PresignResponse = {
+  upload_url: string;
+  object_key: string;
+  public_url: string;
+  headers: Record<string, string>;
+  expires_at: string;
+};
+
 export type Branding = {
   logo_url?: string;
   primary_color?: string;

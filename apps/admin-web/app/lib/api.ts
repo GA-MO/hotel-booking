@@ -15,12 +15,16 @@ import type {
   AvailabilityResponse,
   Booking,
   BookingCreateRequest,
+  CreatePhotoRequest,
   CreatePricingRuleRequest,
   Hotel,
   HotelCreateRequest,
   HotelUpdateRequest,
   LandingPage,
   LandingUpdateRequest,
+  Photo,
+  PresignRequest,
+  PresignResponse,
   PricingRule,
   RoomType,
   RoomTypeCreateRequest,
@@ -285,6 +289,69 @@ export const Pricing = {
       method: "DELETE",
       expectNoContent: true,
     }),
+};
+
+// ----- photos -----
+//
+// `storage_key` returned by Uploads.presign() flows into Photos.createRoomType /
+// createHotel as-is. The backend stores it on the hotel_photos / room_type_photos
+// row; imgproxy URL signing happens at render time via Uploads.imgproxyURL.
+
+export const Photos = {
+  listRoomType: (hotelID: string, roomTypeID: string) =>
+    apiRequest<{ photos: Photo[] }>(
+      `/v1/hotels/${hotelID}/room-types/${roomTypeID}/photos`,
+    ),
+  createRoomType: (hotelID: string, roomTypeID: string, req: CreatePhotoRequest) =>
+    apiRequest<Photo>(`/v1/hotels/${hotelID}/room-types/${roomTypeID}/photos`, {
+      method: "POST",
+      body: req,
+    }),
+  removeRoomType: (hotelID: string, roomTypeID: string, photoID: string) =>
+    apiRequest<null>(
+      `/v1/hotels/${hotelID}/room-types/${roomTypeID}/photos/${photoID}`,
+      { method: "DELETE", expectNoContent: true },
+    ),
+  listHotel: (hotelID: string) =>
+    apiRequest<{ photos: Photo[] }>(`/v1/hotels/${hotelID}/photos`),
+  createHotel: (hotelID: string, req: CreatePhotoRequest) =>
+    apiRequest<Photo>(`/v1/hotels/${hotelID}/photos`, { method: "POST", body: req }),
+  removeHotel: (hotelID: string, photoID: string) =>
+    apiRequest<null>(`/v1/hotels/${hotelID}/photos/${photoID}`, {
+      method: "DELETE",
+      expectNoContent: true,
+    }),
+};
+
+// ----- uploads -----
+//
+// Two-step browser flow:
+//   1. POST /v1/uploads/presign -> { upload_url, object_key, public_url, headers }
+//   2. PUT the file bytes to upload_url with the exact headers the response
+//      lists; any deviation invalidates the SigV4 signature.
+// Use Uploads.upload() to do both in one call.
+
+export const Uploads = {
+  presign: (req: PresignRequest) =>
+    apiRequest<PresignResponse>("/v1/uploads/presign", { method: "POST", body: req }),
+
+  async upload(file: File, kind: PresignRequest["kind"], hotelID?: string): Promise<PresignResponse> {
+    const presigned = await Uploads.presign({
+      kind,
+      hotel_id: hotelID,
+      content_type: file.type,
+      size_bytes: file.size,
+    });
+    const putRes = await fetch(presigned.upload_url, {
+      method: "PUT",
+      body: file,
+      headers: presigned.headers,
+    });
+    if (!putRes.ok) {
+      throw new ApiClientError(putRes.status, "UPLOAD_FAILED", `storage rejected upload: ${putRes.status}`);
+    }
+    return presigned;
+  },
 };
 
 // ----- subscription -----
