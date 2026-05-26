@@ -1,6 +1,7 @@
 package booking
 
 import (
+	"encoding/json"
 	"time"
 
 	"github.com/google/uuid"
@@ -129,4 +130,44 @@ type CancelRequest struct {
 type ListResponse struct {
 	Bookings []Booking `json:"bookings"`
 	Total    int       `json:"total"`
+}
+
+// PublicHotelContext is the slice of hotel metadata the guest UI needs
+// alongside a booking confirmation — timezone for date formatting, currency
+// for display, promptpay_id so the confirmation page can render a real
+// EMVCo PromptPay QR. Intentionally duplicated from `landing.PublicHotelContext`
+// rather than imported: keeps the booking package free of a hard dependency
+// on the marketing/CMS module, and the type is tiny (5 string fields).
+type PublicHotelContext struct {
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	Timezone    string  `json:"timezone"`
+	Currency    string  `json:"currency"`
+	PromptPayID *string `json:"promptpay_id,omitempty"`
+}
+
+// PublicBookingResponse wraps a Booking with the hotel context the guest UI
+// needs to format dates and render PromptPay QR codes on the confirmation
+// page. Mirrors the shape of landing.PublicLandingResponse.
+type PublicBookingResponse struct {
+	Booking
+	Hotel PublicHotelContext `json:"hotel"`
+}
+
+// BookingEvent is one row from the append-only booking_events audit table.
+// Payload is opaque JSON whose shape depends on event_type.
+type BookingEvent struct {
+	ID        uuid.UUID       `json:"id"`
+	BookingID uuid.UUID       `json:"booking_id"`
+	EventType string          `json:"event_type"`
+	ActorType string          `json:"actor_type,omitempty"`
+	ActorID   *uuid.UUID      `json:"actor_id,omitempty"`
+	Payload   json.RawMessage `json:"payload"`
+	CreatedAt time.Time       `json:"created_at"`
+}
+
+// BookingEventsResponse is returned by
+// GET /v1/hotels/{hotel_id}/bookings/{id}/events.
+type BookingEventsResponse struct {
+	Events []BookingEvent `json:"events"`
 }

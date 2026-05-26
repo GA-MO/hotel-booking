@@ -832,6 +832,28 @@ paths:
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
 
+  /v1/hotels/{hotel_id}/bookings/{id}/events:
+    parameters:
+      - $ref: '#/components/parameters/HotelIdPathSegment'
+      - $ref: '#/components/parameters/IdPath'
+    get:
+      tags: [bookings]
+      summary: List the audit-trail events for a booking (owner / manager / front_desk)
+      description: |
+        Returns every row of `booking_events` for this booking, ordered by
+        `created_at` ascending. Tenant isolation is enforced: a booking in
+        another account returns 404 (not 403).
+      responses:
+        '200':
+          description: Event list
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/BookingEventsResponse' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '403': { $ref: '#/components/responses/Forbidden' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '500': { $ref: '#/components/responses/InternalError' }
+
   /v1/hotels/{hotel_id}/bookings/{id}/confirm:
     parameters:
       - $ref: '#/components/parameters/HotelIdPathSegment'
@@ -1179,7 +1201,10 @@ paths:
     get:
       tags: [public, bookings]
       summary: Look up a booking by reference + guest email
-      description: Email is required as a soft auth check. Returns 404 on mismatch.
+      description: |
+        Email is required as a soft auth check. Returns 404 on mismatch.
+        Response wraps the `Booking` with hotel context (timezone,
+        currency, optional PromptPay receiver) for guest-side rendering.
       security: []
       parameters:
         - in: query
@@ -1188,10 +1213,10 @@ paths:
           schema: { type: string, format: email }
       responses:
         '200':
-          description: Booking
+          description: Booking with hotel context
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Booking' }
+              schema: { $ref: '#/components/schemas/PublicBookingResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
@@ -1210,10 +1235,10 @@ paths:
             schema: { $ref: '#/components/schemas/PublicBookingCancelRequest' }
       responses:
         '200':
-          description: Cancelled booking
+          description: Cancelled booking with hotel context
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/Booking' }
+              schema: { $ref: '#/components/schemas/PublicBookingResponse' }
         '400': { $ref: '#/components/responses/BadRequest' }
         '404': { $ref: '#/components/responses/NotFound' }
         '409': { $ref: '#/components/responses/Conflict' }
@@ -1441,6 +1466,12 @@ components:
         status:
           type: string
           enum: [test, live, suspended, archived]
+        promptpay_id:
+          type: [string, 'null']
+          description: |
+            Optional PromptPay receiver. One of: 10-digit phone (e.g.
+            "0812345678"), 13-digit Thai national ID, or 15-char e-Wallet /
+            tax-ID. Dashes/spaces are stripped before validation.
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
@@ -1454,10 +1485,17 @@ components:
         country: { type: string }
         timezone: { type: string }
         base_currency: { type: string }
+        promptpay_id:
+          type: [string, 'null']
+          description: 10-digit phone, 13-digit national ID, or 15-char tax ID.
 
     HotelUpdateRequest:
       type: object
-      description: Partial PATCH; only non-null fields are written. Slug is intentionally not updatable here.
+      description: |
+        Partial PATCH; only non-null fields are written. Slug is intentionally
+        not updatable here. `promptpay_id` is tri-state: omit to leave
+        unchanged, set to an empty string to clear, or send a non-empty
+        value to set.
       properties:
         name: { type: [string, 'null'] }
         hotel_type: { type: [string, 'null'] }
@@ -1475,6 +1513,7 @@ components:
         base_currency: { type: [string, 'null'] }
         check_in_time: { type: [string, 'null'] }
         check_out_time: { type: [string, 'null'] }
+        promptpay_id: { type: [string, 'null'] }
 
     HotelListResponse:
       type: object
@@ -1686,6 +1725,11 @@ components:
         slug: { type: string }
         timezone: { type: string, example: 'Asia/Bangkok' }
         currency: { type: string, example: 'THB' }
+        promptpay_id:
+          type: [string, 'null']
+          description: |
+            PromptPay receiver (10-digit phone, 13-digit national ID, or
+            15-char tax ID). Present only when the hotel has configured one.
 
     PublicLandingResponse:
       description: |
@@ -2003,6 +2047,47 @@ components:
           type: array
           items: { $ref: '#/components/schemas/Booking' }
         total: { type: integer, minimum: 0 }
+
+    PublicBookingResponse:
+      description: |
+        Public booking payload. Inherits every field of `Booking` and adds a
+        `hotel` block with the timezone + currency + promptpay_id the guest
+        UI needs to render dates and a PromptPay QR without a second
+        round-trip.
+      allOf:
+        - $ref: '#/components/schemas/Booking'
+        - type: object
+          required: [hotel]
+          properties:
+            hotel: { $ref: '#/components/schemas/PublicHotelContext' }
+
+    BookingEvent:
+      type: object
+      required: [id, booking_id, event_type, payload, created_at]
+      properties:
+        id: { type: string, format: uuid }
+        booking_id: { type: string, format: uuid }
+        event_type:
+          type: string
+          description: |
+            Lifecycle transition or audit marker. Examples: `created`,
+            `confirmed`, `cancelled`, `checked_in`, `checked_out`,
+            `no_show`.
+        actor_type:
+          type: string
+          description: One of `guest`, `hotel_staff`, `system`, `platform_admin`.
+        actor_id: { type: [string, 'null'], format: uuid }
+        payload:
+          description: Opaque JSON. Shape depends on `event_type`.
+        created_at: { type: string, format: date-time }
+
+    BookingEventsResponse:
+      type: object
+      required: [events]
+      properties:
+        events:
+          type: array
+          items: { $ref: '#/components/schemas/BookingEvent' }
 
     # ----- notification -----
 

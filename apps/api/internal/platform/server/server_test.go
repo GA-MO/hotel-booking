@@ -83,6 +83,7 @@ func TestRoutes_NoMountPanic(t *testing.T) {
 		"GET /v1/hotels/{hotel_id}/bookings/",
 		"POST /v1/hotels/{hotel_id}/bookings/",
 		"GET /v1/hotels/{hotel_id}/bookings/{id}",
+		"GET /v1/hotels/{hotel_id}/bookings/{id}/events",
 		"POST /v1/hotels/{hotel_id}/bookings/{id}/confirm",
 		"POST /v1/hotels/{hotel_id}/bookings/{id}/cancel",
 		"POST /v1/hotels/{hotel_id}/bookings/{id}/check-in",

@@ -172,6 +172,8 @@ func writeError(w http.ResponseWriter, err error) {
 		respond.Error(w, http.StatusBadRequest, "INVALID_SLUG", "slug must be 3-80 chars, lowercase letters/digits/hyphens, no leading/trailing hyphen")
 	case errors.Is(err, ErrInvalidName):
 		respond.Error(w, http.StatusBadRequest, "INVALID_NAME", "name is required and must be ≤255 chars")
+	case errors.Is(err, ErrInvalidPromptPayID):
+		respond.Error(w, http.StatusBadRequest, "INVALID_PROMPTPAY_ID", "promptpay_id must be a 10-digit phone, 13-digit national ID, or 15-char tax ID")
 	case errors.Is(err, ErrForbidden):
 		respond.Error(w, http.StatusForbidden, "FORBIDDEN", "insufficient permission")
 	default:

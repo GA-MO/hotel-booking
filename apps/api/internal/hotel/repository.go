@@ -29,6 +29,7 @@ const selectColumns = `
 	to_char(check_in_time, 'HH24:MI:SS'),
 	to_char(check_out_time, 'HH24:MI:SS'),
 	kyc_status, status,
+	promptpay_id,
 	created_at, updated_at
 `
 
@@ -44,6 +45,7 @@ func scanHotel(row pgx.Row) (*Hotel, error) {
 		&h.Timezone, &h.BaseCurrency,
 		&h.CheckInTime, &h.CheckOutTime,
 		&h.KYCStatus, &h.Status,
+		&h.PromptPayID,
 		&h.CreatedAt, &h.UpdatedAt,
 	); err != nil {
 		return nil, err
@@ -55,6 +57,7 @@ func (r *Repository) Create(
 	ctx context.Context,
 	accountID uuid.UUID,
 	slug, name, hotelType, country, timezone, baseCurrency string,
+	promptPayID *string,
 ) (*Hotel, error) {
 	if timezone == "" {
 		timezone = "Asia/Bangkok"
@@ -63,10 +66,10 @@ func (r *Repository) Create(
 		baseCurrency = "THB"
 	}
 	row := r.db.QueryRow(ctx, `
-		INSERT INTO hotels (account_id, slug, name, hotel_type, country, timezone, base_currency)
-		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7)
+		INSERT INTO hotels (account_id, slug, name, hotel_type, country, timezone, base_currency, promptpay_id)
+		VALUES ($1, $2, $3, NULLIF($4, ''), NULLIF($5, ''), $6, $7, $8)
 		RETURNING `+selectColumns,
-		accountID, slug, name, hotelType, country, timezone, baseCurrency,
+		accountID, slug, name, hotelType, country, timezone, baseCurrency, ptrOrNil(promptPayID),
 	)
 	h, err := scanHotel(row)
 	if err != nil {
@@ -133,7 +136,21 @@ func (r *Repository) SlugAvailable(ctx context.Context, slug string) (bool, erro
 }
 
 // Update applies a partial update. Nil pointers in patch are left unchanged.
+// PromptPayID has tri-state semantics: nil = unchanged, "" = clear (write
+// NULL), non-empty string = write the new value.
 func (r *Repository) Update(ctx context.Context, accountID, id uuid.UUID, patch UpdateRequest) (*Hotel, error) {
+	// Encode tri-state for promptpay_id. We use a sentinel boolean so the
+	// SQL knows whether the caller intended to touch the column at all.
+	var promptPay any
+	clearPromptPay := false
+	if patch.PromptPayID != nil {
+		if *patch.PromptPayID == "" {
+			clearPromptPay = true
+		} else {
+			v := *patch.PromptPayID
+			promptPay = v
+		}
+	}
 	row := r.db.QueryRow(ctx, `
 		UPDATE hotels SET
 		  name           = COALESCE($3,  name),
@@ -151,7 +168,11 @@ func (r *Repository) Update(ctx context.Context, accountID, id uuid.UUID, patch 
 		  timezone       = COALESCE($15, timezone),
 		  base_currency  = COALESCE($16, base_currency),
 		  check_in_time  = COALESCE($17::time, check_in_time),
-		  check_out_time = COALESCE($18::time, check_out_time)
+		  check_out_time = COALESCE($18::time, check_out_time),
+		  promptpay_id   = CASE
+		                     WHEN $20::boolean THEN NULL
+		                     ELSE COALESCE($19, promptpay_id)
+		                   END
 		WHERE id = $1 AND account_id = $2 AND deleted_at IS NULL
 		RETURNING `+selectColumns,
 		id, accountID,
@@ -171,6 +192,8 @@ func (r *Repository) Update(ctx context.Context, accountID, id uuid.UUID, patch 
 		ptrOrNil(patch.BaseCurrency),
 		ptrOrNil(patch.CheckInTime),
 		ptrOrNil(patch.CheckOutTime),
+		promptPay,
+		clearPromptPay,
 	)
 	h, err := scanHotel(row)
 	if err != nil {

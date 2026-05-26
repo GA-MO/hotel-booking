@@ -81,12 +81,14 @@ type ListResponse struct {
 }
 
 // PublicHotelContext is the slice of hotel metadata the guest UI needs alongside
-// the landing payload — timezone for date formatting, currency for display.
+// the landing payload — timezone for date formatting, currency for display,
+// promptpay_id so the confirmation page can render a real EMVCo QR.
 type PublicHotelContext struct {
-	Name     string `json:"name"`
-	Slug     string `json:"slug"`
-	Timezone string `json:"timezone"`
-	Currency string `json:"currency"`
+	Name        string  `json:"name"`
+	Slug        string  `json:"slug"`
+	Timezone    string  `json:"timezone"`
+	Currency    string  `json:"currency"`
+	PromptPayID *string `json:"promptpay_id,omitempty"`
 }
 
 // PublicLandingResponse is the payload returned by GET /v1/public/landing/{slug}/{locale}.

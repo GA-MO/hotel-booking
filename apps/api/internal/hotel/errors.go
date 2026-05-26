@@ -7,6 +7,7 @@ var (
 	ErrSlugAlreadyTaken   = errors.New("slug already taken")
 	ErrInvalidSlug        = errors.New("invalid slug")
 	ErrInvalidName        = errors.New("invalid name")
+	ErrInvalidPromptPayID = errors.New("invalid promptpay id")
 	ErrForbidden          = errors.New("forbidden")
 	ErrInvalidRequest     = errors.New("invalid request")
 )

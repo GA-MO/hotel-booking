@@ -35,18 +35,25 @@ type Hotel struct {
 	KYCStatus string `json:"kyc_status"` // pending | submitted | approved | rejected
 	Status    string `json:"status"`     // test | live | suspended | archived
 
+	// PromptPayID is the hotel's PromptPay receiver — 10-digit phone (e.g.
+	// "0812345678"), 13-digit Thai national ID, or 15-char tax ID. Pointer
+	// so PATCH can clear it via explicit null. Format validated at the
+	// service layer, not the DB.
+	PromptPayID *string `json:"promptpay_id,omitempty"`
+
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // CreateRequest is the body for POST /v1/hotels.
 type CreateRequest struct {
-	Slug         string `json:"slug"`
-	Name         string `json:"name"`
-	HotelType    string `json:"hotel_type,omitempty"`
-	Country      string `json:"country,omitempty"`
-	Timezone     string `json:"timezone,omitempty"`
-	BaseCurrency string `json:"base_currency,omitempty"`
+	Slug         string  `json:"slug"`
+	Name         string  `json:"name"`
+	HotelType    string  `json:"hotel_type,omitempty"`
+	Country      string  `json:"country,omitempty"`
+	Timezone     string  `json:"timezone,omitempty"`
+	BaseCurrency string  `json:"base_currency,omitempty"`
+	PromptPayID  *string `json:"promptpay_id,omitempty"`
 }
 
 // UpdateRequest is the body for PATCH /v1/hotels/{id}. All fields optional;
@@ -69,6 +76,7 @@ type UpdateRequest struct {
 	BaseCurrency *string  `json:"base_currency,omitempty"`
 	CheckInTime  *string  `json:"check_in_time,omitempty"`
 	CheckOutTime *string  `json:"check_out_time,omitempty"`
+	PromptPayID  *string  `json:"promptpay_id,omitempty"`
 }
 
 type SlugAvailableResponse struct {

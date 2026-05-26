@@ -31,6 +31,7 @@ func (h *Handler) Routes() chi.Router {
 	r.Get("/", h.list)
 	r.With(requireRole("owner", "manager", "front_desk")).Post("/", h.createWalkIn)
 	r.Get("/{id}", h.get)
+	r.With(requireRole("owner", "manager", "front_desk")).Get("/{id}/events", h.listEvents)
 	r.With(requireRole("owner", "manager", "front_desk")).Post("/{id}/confirm", h.confirm)
 	r.With(requireRole("owner", "manager", "front_desk")).Post("/{id}/cancel", h.cancel)
 	r.With(requireRole("owner", "manager", "front_desk")).Post("/{id}/check-in", h.checkIn)
@@ -192,6 +193,24 @@ func (h *Handler) noShow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.Body(w, http.StatusOK, b)
+}
+
+func (h *Handler) listEvents(w http.ResponseWriter, r *http.Request) {
+	identity, _ := auth.IdentityFrom(r.Context())
+	hotelID, ok := parseHotelID(w, r)
+	if !ok {
+		return
+	}
+	id, ok := parseUUIDParam(w, r, "id")
+	if !ok {
+		return
+	}
+	events, err := h.svc.ListEvents(r.Context(), identity.AccountID, hotelID, id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	respond.Body(w, http.StatusOK, BookingEventsResponse{Events: events})
 }
 
 // ----- public handlers -----

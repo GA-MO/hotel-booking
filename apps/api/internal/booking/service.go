@@ -181,8 +181,10 @@ func (s *Service) CancelByHotel(ctx context.Context, id uuid.UUID, reason string
 }
 
 // CancelByGuest — guest-initiated cancellation via reference + email verify.
-func (s *Service) CancelByGuest(ctx context.Context, reference, email, reason string) (*Booking, error) {
-	b, err := s.repo.GetByReference(ctx, reference)
+// Returns the cancelled booking wrapped with the hotel context so the
+// confirmation/cancellation UI doesn't need a second round-trip.
+func (s *Service) CancelByGuest(ctx context.Context, reference, email, reason string) (*PublicBookingResponse, error) {
+	b, hctx, err := s.repo.GetByReferenceWithHotel(ctx, reference)
 	if err != nil {
 		return nil, err
 	}
@@ -190,10 +192,11 @@ func (s *Service) CancelByGuest(ctx context.Context, reference, email, reason st
 		return nil, ErrBookingNotFound
 	}
 	out, err := s.repo.Cancel(ctx, b.ID, "guest", reason, nil)
-	if err == nil {
-		s.fire(ctx, EventCancelled, out)
+	if err != nil {
+		return nil, err
 	}
-	return out, err
+	s.fire(ctx, EventCancelled, out)
+	return &PublicBookingResponse{Booking: *out, Hotel: *hctx}, nil
 }
 
 func (s *Service) CheckIn(ctx context.Context, id uuid.UUID, actorID uuid.UUID) (*Booking, error) {
@@ -223,16 +226,25 @@ func (s *Service) GetForAccount(ctx context.Context, accountID, id uuid.UUID) (*
 	return s.repo.GetForAccount(ctx, accountID, id)
 }
 
-// GetPublic looks up by reference + email — for guest self-service.
-func (s *Service) GetPublic(ctx context.Context, reference, email string) (*Booking, error) {
-	b, err := s.repo.GetByReference(ctx, reference)
+// GetPublic looks up by reference + email — for guest self-service. Returns
+// the booking wrapped with the hotel context (timezone / currency /
+// promptpay_id) so the confirmation page can render dates and a PromptPay
+// QR without a second round-trip.
+func (s *Service) GetPublic(ctx context.Context, reference, email string) (*PublicBookingResponse, error) {
+	b, hctx, err := s.repo.GetByReferenceWithHotel(ctx, reference)
 	if err != nil {
 		return nil, err
 	}
 	if !strings.EqualFold(b.GuestEmail, strings.TrimSpace(email)) {
 		return nil, ErrBookingNotFound
 	}
-	return b, nil
+	return &PublicBookingResponse{Booking: *b, Hotel: *hctx}, nil
+}
+
+// ListEvents returns the audit trail for one booking, scoped to the caller's
+// account + hotel. Cross-tenant access returns ErrBookingNotFound.
+func (s *Service) ListEvents(ctx context.Context, accountID, hotelID, bookingID uuid.UUID) ([]BookingEvent, error) {
+	return s.repo.ListEvents(ctx, accountID, hotelID, bookingID)
 }
 
 // ListByHotel returns bookings for a hotel, scoped to the caller's account.

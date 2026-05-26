@@ -240,7 +240,7 @@ func (r *Repository) GetPublishedBySlug(ctx context.Context, slug, locale string
 			lp.id, lp.hotel_id, lp.locale, lp.status, lp.version,
 			lp.branding, lp.sections, lp.seo, lp.tracking,
 			lp.published_at, lp.created_at, lp.updated_at,
-			h.name, h.slug, h.timezone, h.base_currency
+			h.name, h.slug, h.timezone, h.base_currency, h.promptpay_id
 		FROM landing_pages lp
 		JOIN hotels h ON h.id = lp.hotel_id
 		WHERE h.slug = $1
@@ -252,7 +252,7 @@ func (r *Repository) GetPublishedBySlug(ctx context.Context, slug, locale string
 		&lp.ID, &lp.HotelID, &lp.Locale, &lp.Status, &lp.Version,
 		&brandingRaw, &sectionsRaw, &seoRaw, &trackRaw,
 		&lp.PublishedAt, &lp.CreatedAt, &lp.UpdatedAt,
-		&hotel.Name, &hotel.Slug, &hotel.Timezone, &hotel.Currency,
+		&hotel.Name, &hotel.Slug, &hotel.Timezone, &hotel.Currency, &hotel.PromptPayID,
 	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {

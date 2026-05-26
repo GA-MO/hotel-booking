@@ -21,7 +21,7 @@ func TestRepo_CreateAndSlugCollision(t *testing.T) {
 
 	// Different account creates a hotel with a unique slug — should succeed.
 	otherAccount := mkAccount(t, pool)
-	h, err := repo.Create(ctx, otherAccount, "another-hotel", "Another", "boutique", "TH", "Asia/Bangkok", "THB")
+	h, err := repo.Create(ctx, otherAccount, "another-hotel", "Another", "boutique", "TH", "Asia/Bangkok", "THB", nil)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -30,7 +30,7 @@ func TestRepo_CreateAndSlugCollision(t *testing.T) {
 	}
 
 	// Same account or different — claiming the seeded slug must fail.
-	if _, err := repo.Create(ctx, otherAccount, f.HotelSlug, "Dup", "", "", "Asia/Bangkok", "THB"); !errors.Is(err, hotel.ErrSlugAlreadyTaken) {
+	if _, err := repo.Create(ctx, otherAccount, f.HotelSlug, "Dup", "", "", "Asia/Bangkok", "THB", nil); !errors.Is(err, hotel.ErrSlugAlreadyTaken) {
 		t.Errorf("expected ErrSlugAlreadyTaken, got %v", err)
 	}
 }
@@ -66,7 +66,7 @@ func TestRepo_ListByAccount(t *testing.T) {
 	ctx := context.Background()
 
 	// Add a second hotel to the same account.
-	if _, err := repo.Create(ctx, f.AccountID, "second", "Second", "", "", "Asia/Bangkok", "THB"); err != nil {
+	if _, err := repo.Create(ctx, f.AccountID, "second", "Second", "", "", "Asia/Bangkok", "THB", nil); err != nil {
 		t.Fatalf("Create second: %v", err)
 	}
 	list, err := repo.ListByAccount(ctx, f.AccountID)

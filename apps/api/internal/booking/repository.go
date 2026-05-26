@@ -365,6 +365,107 @@ func (r *Repository) GetByReference(ctx context.Context, reference string) (*Boo
 	return &b, nil
 }
 
+// GetByReferenceWithHotel fetches the booking row plus the parent hotel
+// context in one query (name/slug/timezone/base_currency/promptpay_id).
+// Used by the public booking confirmation + cancel endpoints so the guest
+// UI can render dates and PromptPay QR codes without a second round-trip.
+func (r *Repository) GetByReferenceWithHotel(ctx context.Context, reference string) (*Booking, *PublicHotelContext, error) {
+	var b Booking
+	var hctx PublicHotelContext
+	var status, paymentStatus, source string
+	err := r.db.QueryRow(ctx, `
+		SELECT
+			b.id, b.reference, b.hotel_id, b.room_type_id, b.room_count,
+			b.guest_email, COALESCE(b.guest_phone,''), b.guest_name,
+			COALESCE(b.guest_country,''), COALESCE(b.special_request,''),
+			b.check_in_date, b.check_out_date, b.nights,
+			b.currency, b.room_subtotal_cents, b.taxes_cents, b.fees_cents,
+			b.discounts_cents, b.total_cents,
+			b.status, b.payment_status, COALESCE(b.payment_method,''),
+			b.expires_at, b.cancelled_at, COALESCE(b.cancelled_by,''),
+			COALESCE(b.cancellation_reason,''),
+			b.source,
+			COALESCE(b.utm_source,''), COALESCE(b.utm_medium,''),
+			COALESCE(b.utm_campaign,''), COALESCE(b.utm_term,''),
+			COALESCE(b.utm_content,''), COALESCE(b.referrer,''),
+			b.created_at, b.updated_at, b.confirmed_at, b.checked_in_at, b.checked_out_at,
+			h.name, h.slug, h.timezone, h.base_currency, h.promptpay_id
+		FROM bookings b
+		JOIN hotels h ON h.id = b.hotel_id
+		WHERE b.reference = $1
+	`, reference).Scan(
+		&b.ID, &b.Reference, &b.HotelID, &b.RoomTypeID, &b.RoomCount,
+		&b.GuestEmail, &b.GuestPhone, &b.GuestName, &b.GuestCountry, &b.SpecialRequest,
+		&b.CheckInDate, &b.CheckOutDate, &b.Nights,
+		&b.Currency, &b.RoomSubtotalCents, &b.TaxesCents, &b.FeesCents, &b.DiscountsCents, &b.TotalCents,
+		&status, &paymentStatus, &b.PaymentMethod,
+		&b.ExpiresAt, &b.CancelledAt, &b.CancelledBy, &b.CancellationReason,
+		&source,
+		&b.UTMSource, &b.UTMMedium, &b.UTMCampaign, &b.UTMTerm, &b.UTMContent, &b.Referrer,
+		&b.CreatedAt, &b.UpdatedAt, &b.ConfirmedAt, &b.CheckedInAt, &b.CheckedOutAt,
+		&hctx.Name, &hctx.Slug, &hctx.Timezone, &hctx.Currency, &hctx.PromptPayID,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return nil, nil, ErrBookingNotFound
+		}
+		return nil, nil, err
+	}
+	b.Status = Status(status)
+	b.PaymentStatus = PaymentStatus(paymentStatus)
+	b.Source = Source(source)
+	return &b, &hctx, nil
+}
+
+// ListEvents returns the append-only audit trail for a booking, oldest first.
+// The booking row is checked to belong to (accountID, hotelID); a cross-tenant
+// caller gets ErrBookingNotFound (not 403) per AGENTS.md tenant-isolation rule.
+func (r *Repository) ListEvents(ctx context.Context, accountID, hotelID, bookingID uuid.UUID) ([]BookingEvent, error) {
+	// First confirm the booking belongs to the caller's account+hotel.
+	// We piggyback on the hotels join to avoid two round-trips.
+	var exists bool
+	if err := r.db.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM bookings b
+			JOIN hotels h ON h.id = b.hotel_id
+			WHERE b.id = $1 AND b.hotel_id = $2 AND h.account_id = $3
+		)
+	`, bookingID, hotelID, accountID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrBookingNotFound
+	}
+	rows, err := r.db.Query(ctx, `
+		SELECT id, booking_id, event_type, COALESCE(actor_type, ''), actor_id, payload, created_at
+		FROM booking_events
+		WHERE booking_id = $1
+		ORDER BY created_at ASC
+	`, bookingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	events := []BookingEvent{}
+	for rows.Next() {
+		var ev BookingEvent
+		var payloadRaw []byte
+		if err := rows.Scan(
+			&ev.ID, &ev.BookingID, &ev.EventType, &ev.ActorType, &ev.ActorID,
+			&payloadRaw, &ev.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if len(payloadRaw) == 0 {
+			ev.Payload = json.RawMessage("{}")
+		} else {
+			ev.Payload = json.RawMessage(payloadRaw)
+		}
+		events = append(events, ev)
+	}
+	return events, rows.Err()
+}
+
 // ListByHotel returns bookings for a hotel within the caller's account.
 func (r *Repository) ListByHotel(ctx context.Context, accountID, hotelID uuid.UUID, status string, limit int) ([]Booking, error) {
 	if limit <= 0 || limit > 200 {
