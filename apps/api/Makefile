@@ -1,13 +1,16 @@
-.PHONY: help dev build run test lint migrate-up migrate-down migrate-create
+.PHONY: help dev build run test test-integration lint migrate-up migrate-down migrate-create
 
 DATABASE_URL ?= postgres://hotel:hotel@localhost:5432/hotel_booking?sslmode=disable
+TEST_DATABASE_URL ?= $(DATABASE_URL)
 
 help:
 	@echo "Targets:"
 	@echo "  dev              - run API with hot reload (requires air)"
 	@echo "  build            - build api and worker binaries to bin/"
 	@echo "  run              - run API once (no hot reload)"
-	@echo "  test             - run tests"
+	@echo "  test             - run unit tests (integration tests skip without TEST_DATABASE_URL)"
+	@echo "  test-integration - run integration tests against the DB. Requires migrate-up first."
+	@echo "                     Packages run with -p 1 to avoid cross-test TRUNCATE deadlocks."
 	@echo "  lint             - run linters"
 	@echo "  migrate-up       - apply pending migrations"
 	@echo "  migrate-down     - revert last migration"
@@ -27,6 +30,10 @@ run:
 
 test:
 	go test ./... -race -cover
+
+test-integration:
+	@if [ -z "$(TEST_DATABASE_URL)" ]; then echo "TEST_DATABASE_URL not set"; exit 1; fi
+	TEST_DATABASE_URL='$(TEST_DATABASE_URL)' go test ./... -race -count=1 -p 1 -run TestRepo
 
 lint:
 	go vet ./...
