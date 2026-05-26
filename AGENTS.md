@@ -9,7 +9,7 @@ Hotel-booking SaaS — direct booking engine + lightweight PMS for small hotels 
 
 ## Stack
 
-- **Backend** Go 1.23 — chi, pgx/v5, slog, envconfig, golang-jwt/v5, argon2id
+- **Backend** Go 1.25 — chi, pgx/v5, slog, envconfig, golang-jwt/v5, argon2id
 - **Frontend** Next.js 15 App Router, React 19, Tailwind 3 (`output: "standalone"`)
 - **Database** PostgreSQL 16 (JSONB + `FOR UPDATE` for booking race — [ADR-0007](docs/decisions/0007-select-for-update-booking-race.md))
 - **Cache** Redis 7
