@@ -103,6 +103,8 @@ export const en: typeof th = {
   error_generic: "Something went wrong. Please try again.",
   invalid_email: "Please enter a valid email address",
   required_field: "This field is required",
+  view_list: "List",
+  view_calendar: "Calendar",
   copy: "Copy",
   upload_photo: "Upload photo",
   upload_hint: "JPEG / PNG / WebP, up to 10 MB",

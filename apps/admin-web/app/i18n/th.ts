@@ -109,6 +109,8 @@ export const th = {
   error_generic: "เกิดข้อผิดพลาด กรุณาลองอีกครั้ง",
   invalid_email: "รูปแบบอีเมลไม่ถูกต้อง",
   required_field: "กรุณากรอกข้อมูล",
+  view_list: "รายการ",
+  view_calendar: "ปฏิทิน",
   copy: "คัดลอก",
   upload_photo: "อัปโหลดรูป",
   upload_hint: "JPEG / PNG / WebP, ไม่เกิน 10 MB",
