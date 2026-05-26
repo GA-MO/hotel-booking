@@ -161,11 +161,14 @@ export default function BookingsListPage() {
           </Group>
         </Center>
       ) : view === "calendar" ? (
+        // Default mode keeps onEventClick working. We don't wire onEventDrop /
+        // onDrop yet — without those callbacks the drag still works visually
+        // but the change isn't persisted; once BE has a reschedule endpoint
+        // we can opt in by adding the handler.
         <MonthView
           date={calendarDate}
           onDateChange={setCalendarDate}
           events={events}
-          mode="static"
           onEventClick={(e) =>
             router.push(`/bookings/${e.id}` as Route)
           }
