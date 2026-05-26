@@ -90,6 +90,13 @@ export type Section<T extends SectionType = SectionType> = {
   content: Partial<SectionContentByType[T]>;
 };
 
+export type PublicHotelContext = {
+  name: string;
+  slug: string;
+  timezone: string;
+  currency: string;
+};
+
 export type LandingPage = {
   id: string;
   hotel_id: string;
@@ -103,6 +110,7 @@ export type LandingPage = {
   published_at?: string | null;
   created_at: string;
   updated_at: string;
+  hotel: PublicHotelContext;
 };
 
 // ----- pricing / quote -----

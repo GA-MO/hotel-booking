@@ -127,7 +127,7 @@ func (s *Service) Delete(ctx context.Context, accountID, hotelID uuid.UUID, loca
 // GetPublishedBySlug is the public-facing read path used by the booking-web
 // ISR build. It bypasses account ownership checks (it's anonymous) but only
 // ever returns published rows on live hotels.
-func (s *Service) GetPublishedBySlug(ctx context.Context, slug, locale string) (*LandingPage, error) {
+func (s *Service) GetPublishedBySlug(ctx context.Context, slug, locale string) (*PublicLandingResponse, error) {
 	locale = strings.TrimSpace(locale)
 	if err := validateLocale(locale); err != nil {
 		return nil, err

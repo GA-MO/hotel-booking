@@ -2,7 +2,7 @@ import { headers } from "next/headers";
 
 import LanguageSwitcher from "../../../components/LanguageSwitcher";
 import { getDict, resolveLocale } from "../../../i18n";
-import { ApiError, getBooking } from "../../../lib/api";
+import { ApiError, getBooking, getLanding } from "../../../lib/api";
 import { formatRange } from "../../../lib/dates";
 import { formatMoney, localeFor } from "../../../lib/money";
 import type { Booking } from "../../../lib/types";
@@ -31,14 +31,28 @@ async function tryLoadBooking(reference: string, email: string | undefined) {
   }
 }
 
+// Landing carries the hotel timezone; fetch it best-effort so dates render in
+// hotel-local time. If the hotel isn't live or has no published page for this
+// locale, fall back to UTC.
+async function loadTimezone(slug: string, locale: "th" | "en"): Promise<string | undefined> {
+  try {
+    const landing = await getLanding(slug, locale);
+    return landing.hotel?.timezone;
+  } catch {
+    return undefined;
+  }
+}
+
 function BookingSummary({
   booking,
   locale,
   dict,
+  timezone,
 }: {
   booking: Booking;
   locale: "th" | "en";
   dict: ReturnType<typeof getDict>;
+  timezone?: string;
 }) {
   return (
     <dl className="space-y-3 text-sm">
@@ -56,7 +70,7 @@ function BookingSummary({
       </div>
       <div className="flex justify-between">
         <dt className="text-neutral-500">{dict.confirmation.dates}</dt>
-        <dd>{formatRange(booking.check_in_date, booking.check_out_date, { locale })}</dd>
+        <dd>{formatRange(booking.check_in_date, booking.check_out_date, { locale, timezone })}</dd>
       </div>
       <div className="flex justify-between border-t border-neutral-200 pt-3 text-base font-semibold">
         <dt>{dict.confirmation.total}</dt>
@@ -80,7 +94,10 @@ export default async function ConfirmationPage({
   const dict = getDict(locale);
 
   const email = Array.isArray(sp.email) ? sp.email[0] : sp.email;
-  const { booking, error } = await tryLoadBooking(reference, email);
+  const [{ booking, error }, timezone] = await Promise.all([
+    tryLoadBooking(reference, email),
+    loadTimezone(slug, locale),
+  ]);
 
   return (
     <main className="font-sans">
@@ -102,7 +119,7 @@ export default async function ConfirmationPage({
             </h1>
 
             <div className="space-y-6 rounded-xl border border-neutral-200 bg-white p-6">
-              <BookingSummary booking={booking} locale={locale} dict={dict} />
+              <BookingSummary booking={booking} locale={locale} dict={dict} timezone={timezone} />
             </div>
 
             <BookingActions booking={booking} locale={locale} dict={dict} slug={slug} />

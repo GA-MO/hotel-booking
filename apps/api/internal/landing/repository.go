@@ -226,13 +226,21 @@ func (r *Repository) Delete(ctx context.Context, hotelID uuid.UUID, locale strin
 // GetPublishedBySlug serves the booking-web ISR endpoint. It joins hotels +
 // landing_pages and only returns a row when both the hotel is live AND the
 // landing page is published. Anything else => ErrLandingPageNotFound, so the
-// public 404 cannot leak draft / suspended state.
-func (r *Repository) GetPublishedBySlug(ctx context.Context, slug, locale string) (*LandingPage, error) {
-	row := r.db.QueryRow(ctx, `
+// public 404 cannot leak draft / suspended state. The returned response wraps
+// the LandingPage with hotel context (timezone + currency) so the guest UI can
+// format dates/prices without a second round-trip.
+func (r *Repository) GetPublishedBySlug(ctx context.Context, slug, locale string) (*PublicLandingResponse, error) {
+	var (
+		lp                                          LandingPage
+		brandingRaw, sectionsRaw, seoRaw, trackRaw []byte
+		hotel                                       PublicHotelContext
+	)
+	err := r.db.QueryRow(ctx, `
 		SELECT
 			lp.id, lp.hotel_id, lp.locale, lp.status, lp.version,
 			lp.branding, lp.sections, lp.seo, lp.tracking,
-			lp.published_at, lp.created_at, lp.updated_at
+			lp.published_at, lp.created_at, lp.updated_at,
+			h.name, h.slug, h.timezone, h.currency
 		FROM landing_pages lp
 		JOIN hotels h ON h.id = lp.hotel_id
 		WHERE h.slug = $1
@@ -240,13 +248,32 @@ func (r *Repository) GetPublishedBySlug(ctx context.Context, slug, locale string
 		  AND h.status = 'live'
 		  AND h.deleted_at IS NULL
 		  AND lp.status = 'published'
-	`, slug, locale)
-	lp, err := scanLandingPage(row)
+	`, slug, locale).Scan(
+		&lp.ID, &lp.HotelID, &lp.Locale, &lp.Status, &lp.Version,
+		&brandingRaw, &sectionsRaw, &seoRaw, &trackRaw,
+		&lp.PublishedAt, &lp.CreatedAt, &lp.UpdatedAt,
+		&hotel.Name, &hotel.Slug, &hotel.Timezone, &hotel.Currency,
+	)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return nil, ErrLandingPageNotFound
 		}
 		return nil, err
 	}
-	return lp, nil
+	if err := json.Unmarshal(brandingRaw, &lp.Branding); err != nil {
+		return nil, fmt.Errorf("decode branding: %w", err)
+	}
+	lp.Sections = []Section{}
+	if len(sectionsRaw) > 0 {
+		if err := json.Unmarshal(sectionsRaw, &lp.Sections); err != nil {
+			return nil, fmt.Errorf("decode sections: %w", err)
+		}
+	}
+	if err := json.Unmarshal(seoRaw, &lp.SEO); err != nil {
+		return nil, fmt.Errorf("decode seo: %w", err)
+	}
+	if err := json.Unmarshal(trackRaw, &lp.Tracking); err != nil {
+		return nil, fmt.Errorf("decode tracking: %w", err)
+	}
+	return &PublicLandingResponse{LandingPage: lp, Hotel: hotel}, nil
 }

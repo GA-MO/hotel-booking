@@ -79,3 +79,20 @@ type UpdateRequest struct {
 type ListResponse struct {
 	LandingPages []LandingPage `json:"landing_pages"`
 }
+
+// PublicHotelContext is the slice of hotel metadata the guest UI needs alongside
+// the landing payload — timezone for date formatting, currency for display.
+type PublicHotelContext struct {
+	Name     string `json:"name"`
+	Slug     string `json:"slug"`
+	Timezone string `json:"timezone"`
+	Currency string `json:"currency"`
+}
+
+// PublicLandingResponse is the payload returned by GET /v1/public/landing/{slug}/{locale}.
+// It wraps the published LandingPage with the hotel context needed to render
+// dates and prices on the guest side without a second round-trip.
+type PublicLandingResponse struct {
+	LandingPage
+	Hotel PublicHotelContext `json:"hotel"`
+}

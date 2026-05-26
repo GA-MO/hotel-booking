@@ -1145,7 +1145,7 @@ paths:
           description: Published landing page
           content:
             application/json:
-              schema: { $ref: '#/components/schemas/LandingPage' }
+              schema: { $ref: '#/components/schemas/PublicLandingResponse' }
         '404': { $ref: '#/components/responses/NotFound' }
         '500': { $ref: '#/components/responses/InternalError' }
 
@@ -1677,6 +1677,27 @@ components:
         landing_pages:
           type: array
           items: { $ref: '#/components/schemas/LandingPage' }
+
+    PublicHotelContext:
+      type: object
+      required: [name, slug, timezone, currency]
+      properties:
+        name: { type: string }
+        slug: { type: string }
+        timezone: { type: string, example: 'Asia/Bangkok' }
+        currency: { type: string, example: 'THB' }
+
+    PublicLandingResponse:
+      description: |
+        Public landing payload. Inherits every field of `LandingPage` and adds a
+        `hotel` block with the timezone + currency the guest UI needs to format
+        dates and prices without a second round-trip.
+      allOf:
+        - $ref: '#/components/schemas/LandingPage'
+        - type: object
+          required: [hotel]
+          properties:
+            hotel: { $ref: '#/components/schemas/PublicHotelContext' }
 
     # ----- pricing / availability -----
 
