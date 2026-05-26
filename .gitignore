@@ -53,3 +53,6 @@ yarn-error.log*
 
 # Air (hot reload)
 tmp/
+
+# Dev orchestration (root Makefile: make dev / make stop)
+.dev/
