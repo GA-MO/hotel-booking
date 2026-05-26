@@ -56,3 +56,7 @@ tmp/
 
 # Dev orchestration (root Makefile: make dev / make stop)
 .dev/
+
+# Playwright artefacts from local smoke-walks
+.playwright-mcp/
+*.png

@@ -5,6 +5,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/datetypes"
 )
 
 // Status is the booking lifecycle state.
@@ -57,8 +59,8 @@ type Booking struct {
 	GuestCountry   string `json:"guest_country,omitempty"`
 	SpecialRequest string `json:"special_request,omitempty"`
 
-	CheckInDate  time.Time `json:"check_in_date"`
-	CheckOutDate time.Time `json:"check_out_date"`
+	CheckInDate  datetypes.Date `json:"check_in_date"`
+	CheckOutDate datetypes.Date `json:"check_out_date"`
 	Nights       int       `json:"nights"`
 
 	Currency          string `json:"currency"`

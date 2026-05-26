@@ -10,6 +10,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/GA-MO/hotel-booking/apps/api/internal/booking"
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/datetypes"
 	"github.com/GA-MO/hotel-booking/apps/api/internal/testdb"
 )
 
@@ -33,8 +34,8 @@ func TestRepo_CreatePending_HappyPath(t *testing.T) {
 		RoomCount:         1,
 		GuestEmail:        "guest@example.com",
 		GuestName:         "Smoke Guest",
-		CheckInDate:       checkIn,
-		CheckOutDate:      checkOut,
+		CheckInDate:       datetypes.Date(checkIn),
+		CheckOutDate:      datetypes.Date(checkOut),
 		Currency:          "THB",
 		RoomSubtotalCents: 300000,
 		TotalCents:        300000,
@@ -107,8 +108,8 @@ func TestRepo_CreatePending_RaceNoOversell(t *testing.T) {
 				RoomCount:         1,
 				GuestEmail:        fmtEmail(i),
 				GuestName:         "Race",
-				CheckInDate:       checkIn,
-				CheckOutDate:      checkOut,
+				CheckInDate:       datetypes.Date(checkIn),
+				CheckOutDate:      datetypes.Date(checkOut),
 				Currency:          "THB",
 				RoomSubtotalCents: 150000,
 				TotalCents:        150000,
@@ -168,8 +169,8 @@ func TestRepo_ConfirmThenCheckInOut(t *testing.T) {
 	b, err := repo.CreatePending(ctx, &booking.Booking{
 		HotelID: f.HotelID, RoomTypeID: f.RoomTypeID, RoomCount: 1,
 		GuestEmail: "g@example.com", GuestName: "G",
-		CheckInDate:  time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC),
-		CheckOutDate: time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC),
+		CheckInDate:  datetypes.Date(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)),
+		CheckOutDate: datetypes.Date(time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)),
 		Currency:     "THB", RoomSubtotalCents: 150000, TotalCents: 150000,
 		Source: booking.SourceWeb,
 	}, 10*time.Minute, f.RoomTypeID)
@@ -232,8 +233,8 @@ func TestRepo_ExpirePending(t *testing.T) {
 	_, err := repo.CreatePending(ctx, &booking.Booking{
 		HotelID: f.HotelID, RoomTypeID: f.RoomTypeID, RoomCount: 1,
 		GuestEmail: "expired@example.com", GuestName: "X",
-		CheckInDate:  time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
-		CheckOutDate: time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC),
+		CheckInDate:  datetypes.Date(time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC)),
+		CheckOutDate: datetypes.Date(time.Date(2026, 10, 2, 0, 0, 0, 0, time.UTC)),
 		Currency:     "THB", RoomSubtotalCents: 150000, TotalCents: 150000,
 		Source: booking.SourceWeb,
 	}, -1*time.Minute, f.RoomTypeID)

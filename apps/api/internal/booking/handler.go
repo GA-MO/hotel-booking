@@ -3,6 +3,7 @@ package booking
 import (
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"strconv"
 
@@ -311,6 +312,7 @@ func writeError(w http.ResponseWriter, err error) {
 	case errors.Is(err, ErrHotelNotLive):
 		respond.Error(w, http.StatusConflict, "HOTEL_NOT_LIVE", "hotel is not accepting bookings")
 	default:
+		slog.Error("booking handler", "err", err.Error())
 		respond.Error(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 	}
 }

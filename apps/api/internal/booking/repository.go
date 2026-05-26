@@ -86,7 +86,7 @@ func (r *Repository) CreatePending(
 
 	// 2. Check availability for every night in the stay.
 	if err := checkAvailability(ctx, tx, roomTypeID, totalInventory,
-		b.CheckInDate, b.CheckOutDate, b.RoomCount); err != nil {
+		b.CheckInDate.Time(), b.CheckOutDate.Time(), b.RoomCount); err != nil {
 		return nil, err
 	}
 
@@ -117,7 +117,7 @@ func (r *Repository) CreatePending(
 
 	// 4. Insert.
 	if err := scanBooking(tx.QueryRow(ctx, `
-		INSERT INTO bookings (
+		INSERT INTO bookings AS b (
 			reference, hotel_id, room_type_id, room_count,
 			guest_email, guest_phone, guest_name, guest_country, special_request,
 			check_in_date, check_out_date,
@@ -212,7 +212,7 @@ func (r *Repository) Confirm(ctx context.Context, id uuid.UUID, actorType string
 
 	var b Booking
 	if err := scanBooking(tx.QueryRow(ctx, `
-		UPDATE bookings
+		UPDATE bookings AS b
 		SET status = 'confirmed',
 		    payment_status = 'paid',
 		    confirmed_at = NOW(),
@@ -243,7 +243,7 @@ func (r *Repository) Cancel(ctx context.Context, id uuid.UUID, by, reason string
 
 	var b Booking
 	if err := scanBooking(tx.QueryRow(ctx, `
-		UPDATE bookings
+		UPDATE bookings AS b
 		SET status = 'cancelled',
 		    cancelled_at = NOW(),
 		    cancelled_by = $2,
@@ -297,7 +297,7 @@ func (r *Repository) transitionStaff(
 
 	var b Booking
 	if err := scanBooking(tx.QueryRow(ctx, `
-		UPDATE bookings SET status = $2`+tsClause+`
+		UPDATE bookings AS b SET status = $2`+tsClause+`
 		WHERE id = $1 AND status = $3
 		RETURNING `+bookingColumns, id, toStatus, fromStatus), &b); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -353,8 +353,8 @@ func (r *Repository) GetByReference(ctx context.Context, reference string) (*Boo
 	var b Booking
 	err := scanBooking(r.db.QueryRow(ctx, `
 		SELECT `+bookingColumns+`
-		FROM bookings
-		WHERE reference = $1
+		FROM bookings b
+		WHERE b.reference = $1
 	`, reference), &b)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
@@ -499,16 +499,16 @@ func (r *Repository) ListByHotel(ctx context.Context, accountID, hotelID uuid.UU
 // ----- helpers -----
 
 const bookingColumns = `
-	id, reference, hotel_id, room_type_id, room_count,
-	guest_email, COALESCE(guest_phone,''), guest_name, COALESCE(guest_country,''), COALESCE(special_request,''),
-	check_in_date, check_out_date, nights,
-	currency, room_subtotal_cents, taxes_cents, fees_cents, discounts_cents, total_cents,
-	status, payment_status, COALESCE(payment_method,''),
-	expires_at, cancelled_at, COALESCE(cancelled_by,''), COALESCE(cancellation_reason,''),
-	source,
-	COALESCE(utm_source,''), COALESCE(utm_medium,''), COALESCE(utm_campaign,''),
-	COALESCE(utm_term,''), COALESCE(utm_content,''), COALESCE(referrer,''),
-	created_at, updated_at, confirmed_at, checked_in_at, checked_out_at
+	b.id, b.reference, b.hotel_id, b.room_type_id, b.room_count,
+	b.guest_email, COALESCE(b.guest_phone,''), b.guest_name, COALESCE(b.guest_country,''), COALESCE(b.special_request,''),
+	b.check_in_date, b.check_out_date, b.nights,
+	b.currency, b.room_subtotal_cents, b.taxes_cents, b.fees_cents, b.discounts_cents, b.total_cents,
+	b.status, b.payment_status, COALESCE(b.payment_method,''),
+	b.expires_at, b.cancelled_at, COALESCE(b.cancelled_by,''), COALESCE(b.cancellation_reason,''),
+	b.source,
+	COALESCE(b.utm_source,''), COALESCE(b.utm_medium,''), COALESCE(b.utm_campaign,''),
+	COALESCE(b.utm_term,''), COALESCE(b.utm_content,''), COALESCE(b.referrer,''),
+	b.created_at, b.updated_at, b.confirmed_at, b.checked_in_at, b.checked_out_at
 `
 
 // scanBooking scans a pgx.Row into b. Status/PaymentStatus/Source are stored

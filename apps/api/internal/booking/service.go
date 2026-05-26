@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+
+	"github.com/GA-MO/hotel-booking/apps/api/internal/platform/datetypes"
 )
 
 const defaultHold = 10 * time.Minute
@@ -138,8 +140,8 @@ func (s *Service) create(
 		GuestName:         name,
 		GuestCountry:      strings.ToUpper(strings.TrimSpace(req.GuestCountry)),
 		SpecialRequest:    strings.TrimSpace(req.SpecialRequest),
-		CheckInDate:       checkIn,
-		CheckOutDate:      checkOut,
+		CheckInDate:       datetypes.Date(checkIn),
+		CheckOutDate:      datetypes.Date(checkOut),
 		Nights:            nights,
 		Currency:          currency,
 		RoomSubtotalCents: subtotal,
