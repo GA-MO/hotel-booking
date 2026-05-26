@@ -3,19 +3,37 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 
-import { useShell } from "@/app/components/AppShell";
 import {
+  ActionIcon,
+  Anchor,
+  Badge,
   Button,
   Card,
+  Center,
+  Checkbox,
+  Chip,
+  Group,
+  Loader,
+  Modal,
+  NativeSelect,
+  NumberInput,
+  ScrollArea,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+  TextInput,
+  Title,
+} from "@mantine/core";
+
+import { useShell } from "@/app/components/AppShell";
+import {
   EmptyState,
   ErrorBanner,
-  Field,
-  Modal,
   PageHeader,
-  Select,
-  TextInput,
 } from "@/app/components/ui";
 import { Pricing, RoomTypes } from "@/app/lib/api";
+import { notifySuccess } from "@/app/lib/notify";
 import { t } from "@/app/i18n";
 import type {
   CreatePricingRuleRequest,
@@ -31,7 +49,11 @@ const RULE_TYPES: PricingRuleType[] = [
   "length_of_stay",
   "advance_purchase",
 ];
-const MODIFIER_TYPES: PricingModifierType[] = ["percentage", "fixed_amount", "set_value"];
+const MODIFIER_TYPES: PricingModifierType[] = [
+  "percentage",
+  "fixed_amount",
+  "set_value",
+];
 const DAYS = [
   { v: 1, l: "Mon" },
   { v: 2, l: "Tue" },
@@ -42,6 +64,14 @@ const DAYS = [
   { v: 7, l: "Sun" },
 ];
 
+const emptyRuleForm = (): CreatePricingRuleRequest => ({
+  name: "",
+  rule_type: "season",
+  modifier_type: "percentage",
+  modifier_value: "10",
+  enabled: true,
+});
+
 export default function PricingPage() {
   const { activeHotel } = useShell();
   const [rules, setRules] = useState<PricingRule[]>([]);
@@ -49,6 +79,8 @@ export default function PricingPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [modal, setModal] = useState<PricingRule | "new" | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<PricingRule | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -71,13 +103,18 @@ export default function PricingPage() {
     void load();
   }, [activeHotel.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function remove(rule: PricingRule) {
-    if (!window.confirm(`${t("delete")} ${rule.name}?`)) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await Pricing.remove(activeHotel.id, rule.id);
+      await Pricing.remove(activeHotel.id, deleteTarget.id);
+      notifySuccess(`${t("delete")} ✓`);
+      setDeleteTarget(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -86,116 +123,172 @@ export default function PricingPage() {
       <PageHeader
         title={t("nav_pricing")}
         description={activeHotel.name}
-        actions={<Button onClick={() => setModal("new")}>{t("add")}</Button>}
+        actions={
+          <Button onClick={() => setModal("new")} color="dark">
+            {t("add")}
+          </Button>
+        }
       />
 
       <ErrorBanner message={error} />
 
       {loading ? (
-        <p className="text-sm text-neutral-500">{t("loading")}</p>
+        <Center py="xl">
+          <Loader size="sm" />
+        </Center>
       ) : rules.length === 0 ? (
         <EmptyState message={t("no_data")} />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
-          <table className="w-full min-w-[700px] text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
-                <th className="px-4 py-2.5">Name</th>
-                <th>Type</th>
-                <th>Modifier</th>
-                <th>Range</th>
-                <th>Priority</th>
-                <th>Enabled</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody>
+        <ScrollArea>
+          <Table
+            highlightOnHover
+            withTableBorder
+            verticalSpacing="sm"
+            miw={700}
+          >
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>Name</Table.Th>
+                <Table.Th>Type</Table.Th>
+                <Table.Th>Modifier</Table.Th>
+                <Table.Th>Range</Table.Th>
+                <Table.Th>Priority</Table.Th>
+                <Table.Th>Enabled</Table.Th>
+                <Table.Th></Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
               {rules.map((r) => (
-                <tr key={r.id} className="border-b border-neutral-100 last:border-0">
-                  <td className="px-4 py-2.5">{r.name}</td>
-                  <td className="text-xs">{r.rule_type}</td>
-                  <td className="text-xs font-mono">
-                    {r.modifier_type} / {r.modifier_value}
-                  </td>
-                  <td className="text-xs">
-                    {r.start_date || "—"} → {r.end_date || "—"}
-                  </td>
-                  <td className="text-xs">{r.priority}</td>
-                  <td className="text-xs">{r.enabled ? "yes" : "no"}</td>
-                  <td className="px-4 text-right">
-                    <Button variant="ghost" onClick={() => setModal(r)}>
-                      {t("edit")}
-                    </Button>
-                    <Button variant="ghost" onClick={() => remove(r)}>
-                      {t("delete")}
-                    </Button>
-                  </td>
-                </tr>
+                <Table.Tr key={r.id}>
+                  <Table.Td>{r.name}</Table.Td>
+                  <Table.Td>
+                    <Text size="xs">{r.rule_type}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" ff="monospace">
+                      {r.modifier_type} / {r.modifier_value}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs">
+                      {r.start_date || "—"} → {r.end_date || "—"}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs">{r.priority}</Text>
+                  </Table.Td>
+                  <Table.Td>
+                    <Badge
+                      size="sm"
+                      color={r.enabled ? "teal" : "gray"}
+                      variant="light"
+                    >
+                      {r.enabled ? "yes" : "no"}
+                    </Badge>
+                  </Table.Td>
+                  <Table.Td>
+                    <Group gap={4} justify="flex-end">
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        onClick={() => setModal(r)}
+                        aria-label={t("edit")}
+                      >
+                        ✎
+                      </ActionIcon>
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        onClick={() => setDeleteTarget(r)}
+                        aria-label={t("delete")}
+                      >
+                        ✕
+                      </ActionIcon>
+                    </Group>
+                  </Table.Td>
+                </Table.Tr>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
       )}
 
+      <Card withBorder radius="md" padding="lg" mt="xl">
+        <Title order={3} size="h5" mb="sm">
+          Availability overrides
+        </Title>
+        <Text size="sm" c="dimmed">
+          Per-day overrides (close-outs, special rates, blocks) are edited on the
+          calendar, where the cell grid mirrors the underlying data shape. Open
+          the calendar and toggle{" "}
+          <Text component="span" fw={500} c="dark">
+            {t("bulk_edit")}
+          </Text>{" "}
+          to select cells and apply changes.
+        </Text>
+        <Anchor component={Link} href="/calendar" mt="xs" fw={500} c="dark">
+          {t("nav_calendar")} →
+        </Anchor>
+      </Card>
+
       <RuleModal
-        open={!!modal}
+        target={modal}
         onClose={() => setModal(null)}
         hotelID={activeHotel.id}
         roomTypes={roomTypes}
-        rule={modal && modal !== "new" ? modal : null}
         onSaved={async () => {
           setModal(null);
           await load();
         }}
       />
 
-      <div className="mt-8">
-        <Card title="Availability overrides">
-          <p className="text-sm text-neutral-600">
-            Per-day overrides (close-outs, special rates, blocks) are edited on the
-            calendar, where the cell grid mirrors the underlying data shape. Open
-            the calendar and toggle{" "}
-            <span className="font-medium text-neutral-800">{t("bulk_edit")}</span>{" "}
-            to select cells and apply changes.
-          </p>
-          <div className="mt-3">
-            <Link href="/calendar" className="text-sm font-medium text-neutral-900 underline">
-              {t("nav_calendar")} →
-            </Link>
-          </div>
-        </Card>
-      </div>
+      <Modal
+        opened={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title={t("delete")}
+        centered
+        radius="md"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            {t("delete")} <b>{deleteTarget?.name}</b>?
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setDeleteTarget(null)}>
+              {t("cancel")}
+            </Button>
+            <Button color="red" loading={deleting} onClick={confirmDelete}>
+              {t("delete")}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </div>
   );
 }
 
 function RuleModal({
-  open,
+  target,
   onClose,
   hotelID,
   roomTypes,
-  rule,
   onSaved,
 }: {
-  open: boolean;
+  target: PricingRule | "new" | null;
   onClose: () => void;
   hotelID: string;
   roomTypes: RoomType[];
-  rule: PricingRule | null;
   onSaved: () => Promise<void>;
 }) {
-  const [form, setForm] = useState<CreatePricingRuleRequest>({
-    name: "",
-    rule_type: "season",
-    modifier_type: "percentage",
-    modifier_value: "10",
-    enabled: true,
-  });
+  const rule = target && target !== "new" ? target : null;
+  const opened = target !== null;
+
+  const [form, setForm] = useState<CreatePricingRuleRequest>(emptyRuleForm());
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!open) return;
+    if (!opened) return;
     if (rule) {
       setForm({
         name: rule.name,
@@ -214,16 +307,10 @@ function RuleModal({
         enabled: rule.enabled,
       });
     } else {
-      setForm({
-        name: "",
-        rule_type: "season",
-        modifier_type: "percentage",
-        modifier_value: "10",
-        enabled: true,
-      });
+      setForm(emptyRuleForm());
     }
     setErr(null);
-  }, [open, rule]);
+  }, [opened, rule]);
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -235,8 +322,10 @@ function RuleModal({
         const patch = { ...form };
         delete patch.room_type_id;
         await Pricing.update(hotelID, rule.id, patch);
+        notifySuccess(`${t("save")} ✓`);
       } else {
         await Pricing.create(hotelID, form);
+        notifySuccess(`${t("add")} ✓`);
       }
       await onSaved();
     } catch (e) {
@@ -248,142 +337,158 @@ function RuleModal({
 
   function toggleDay(day: number) {
     const arr = form.days_of_week || [];
-    const next = arr.includes(day) ? arr.filter((d) => d !== day) : [...arr, day].sort();
+    const next = arr.includes(day)
+      ? arr.filter((d) => d !== day)
+      : [...arr, day].sort();
     setForm({ ...form, days_of_week: next });
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={rule ? t("edit") : t("add")}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label="Name">
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title={rule ? t("edit") : t("add")}
+      centered
+      radius="md"
+      size="lg"
+    >
+      <form onSubmit={submit}>
+        <Stack gap="sm">
           <TextInput
+            label="Name"
             required
             value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            onChange={(e) => setForm({ ...form, name: e.currentTarget.value })}
           />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label="Rule type">
-            <Select
+          <SimpleGrid cols={2} spacing="sm">
+            <NativeSelect
+              label="Rule type"
+              data={RULE_TYPES}
               value={form.rule_type}
-              onChange={(e) =>
-                setForm({ ...form, rule_type: e.target.value as PricingRuleType })
-              }
-            >
-              {RULE_TYPES.map((rt) => (
-                <option key={rt} value={rt}>
-                  {rt}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Room type (optional)">
-            <Select
-              value={form.room_type_id || ""}
-              onChange={(e) =>
-                setForm({ ...form, room_type_id: e.target.value || null })
-              }
-              disabled={!!rule}
-            >
-              <option value="">All</option>
-              {roomTypes.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Modifier type">
-            <Select
-              value={form.modifier_type}
-              onChange={(e) =>
-                setForm({ ...form, modifier_type: e.target.value as PricingModifierType })
-              }
-            >
-              {MODIFIER_TYPES.map((m) => (
-                <option key={m} value={m}>
-                  {m}
-                </option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Modifier value">
-            <TextInput
-              required
-              value={form.modifier_value}
-              onChange={(e) => setForm({ ...form, modifier_value: e.target.value })}
-            />
-          </Field>
-          <Field label="Start date">
-            <TextInput
-              type="date"
-              value={form.start_date || ""}
-              onChange={(e) => setForm({ ...form, start_date: e.target.value || null })}
-            />
-          </Field>
-          <Field label="End date">
-            <TextInput
-              type="date"
-              value={form.end_date || ""}
-              onChange={(e) => setForm({ ...form, end_date: e.target.value || null })}
-            />
-          </Field>
-          <Field label="Min nights">
-            <TextInput
-              type="number"
-              min={1}
-              value={form.min_nights ?? ""}
               onChange={(e) =>
                 setForm({
                   ...form,
-                  min_nights: e.target.value ? parseInt(e.target.value, 10) : null,
+                  rule_type: e.currentTarget.value as PricingRuleType,
                 })
               }
             />
-          </Field>
-          <Field label="Priority">
-            <TextInput
-              type="number"
-              value={form.priority ?? 0}
-              onChange={(e) => setForm({ ...form, priority: parseInt(e.target.value, 10) })}
+            <NativeSelect
+              label="Room type (optional)"
+              data={[
+                { value: "", label: "All" },
+                ...roomTypes.map((r) => ({ value: r.id, label: r.name })),
+              ]}
+              value={form.room_type_id || ""}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  room_type_id: e.currentTarget.value || null,
+                })
+              }
+              disabled={!!rule}
             />
-          </Field>
-        </div>
-        <Field label="Days of week (Mon=1, Sun=7)">
-          <div className="flex flex-wrap gap-2">
-            {DAYS.map((d) => (
-              <button
-                key={d.v}
-                type="button"
-                onClick={() => toggleDay(d.v)}
-                className={`rounded-md border px-2 py-1 text-xs ${
-                  form.days_of_week?.includes(d.v)
-                    ? "border-neutral-900 bg-neutral-900 text-white"
-                    : "border-neutral-300 bg-white"
-                }`}
-              >
-                {d.l}
-              </button>
-            ))}
-          </div>
-        </Field>
-        <label className="inline-flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
+            <NativeSelect
+              label="Modifier type"
+              data={MODIFIER_TYPES}
+              value={form.modifier_type}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  modifier_type: e.currentTarget.value as PricingModifierType,
+                })
+              }
+            />
+            <TextInput
+              label="Modifier value"
+              required
+              value={form.modifier_value}
+              onChange={(e) =>
+                setForm({ ...form, modifier_value: e.currentTarget.value })
+              }
+            />
+            <TextInput
+              label="Start date"
+              type="date"
+              value={form.start_date || ""}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  start_date: e.currentTarget.value || null,
+                })
+              }
+            />
+            <TextInput
+              label="End date"
+              type="date"
+              value={form.end_date || ""}
+              onChange={(e) =>
+                setForm({
+                  ...form,
+                  end_date: e.currentTarget.value || null,
+                })
+              }
+            />
+            <NumberInput
+              label="Min nights"
+              min={1}
+              value={form.min_nights ?? ""}
+              onChange={(v) =>
+                setForm({
+                  ...form,
+                  min_nights: typeof v === "number" ? v : null,
+                })
+              }
+            />
+            <NumberInput
+              label="Priority"
+              value={form.priority ?? 0}
+              onChange={(v) =>
+                setForm({
+                  ...form,
+                  priority: typeof v === "number" ? v : 0,
+                })
+              }
+            />
+          </SimpleGrid>
+
+          <Stack gap={4}>
+            <Text size="sm" fw={500} c="gray.7">
+              Days of week (Mon=1, Sun=7)
+            </Text>
+            <Chip.Group multiple value={(form.days_of_week || []).map(String)}>
+              <Group gap="xs">
+                {DAYS.map((d) => (
+                  <Chip
+                    key={d.v}
+                    value={String(d.v)}
+                    onClick={() => toggleDay(d.v)}
+                    color="dark"
+                  >
+                    {d.l}
+                  </Chip>
+                ))}
+              </Group>
+            </Chip.Group>
+          </Stack>
+
+          <Checkbox
+            label="Enabled"
             checked={form.enabled ?? true}
-            onChange={(e) => setForm({ ...form, enabled: e.target.checked })}
+            onChange={(e) =>
+              setForm({ ...form, enabled: e.currentTarget.checked })
+            }
           />
-          Enabled
-        </label>
-        <ErrorBanner message={err} />
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            {t("cancel")}
-          </Button>
-          <Button type="submit" loading={saving}>
-            {t("save")}
-          </Button>
-        </div>
+
+          <ErrorBanner message={err} />
+          <Group justify="flex-end" mt="sm">
+            <Button type="button" variant="default" onClick={onClose}>
+              {t("cancel")}
+            </Button>
+            <Button type="submit" loading={saving} color="dark">
+              {t("save")}
+            </Button>
+          </Group>
+        </Stack>
       </form>
     </Modal>
   );

@@ -2,38 +2,64 @@
 
 import { useEffect, useState } from "react";
 
+import {
+  ActionIcon,
+  Badge,
+  Button,
+  Card,
+  Center,
+  Group,
+  Loader,
+  Modal,
+  NumberInput,
+  SimpleGrid,
+  Stack,
+  Text,
+  Textarea,
+  TextInput,
+  Title,
+} from "@mantine/core";
+import { useForm } from "@mantine/form";
+import { useDisclosure } from "@mantine/hooks";
+
 import { useShell } from "@/app/components/AppShell";
 import PhotoUploader from "@/app/components/PhotoUploader";
 import {
-  Button,
-  Card,
   EmptyState,
   ErrorBanner,
-  Field,
-  Modal,
   PageHeader,
-  TextArea,
-  TextInput,
 } from "@/app/components/ui";
 import { Photos, RoomTypes } from "@/app/lib/api";
+import { notifySuccess } from "@/app/lib/notify";
 import { t } from "@/app/i18n";
 import type { Photo, RoomType, RoomTypeCreateRequest } from "@/app/lib/types";
 
-const emptyForm: RoomTypeCreateRequest = {
+type FormValues = Required<
+  Pick<
+    RoomTypeCreateRequest,
+    "name" | "description" | "total_inventory" | "max_occupancy" | "base_rate" | "base_currency"
+  >
+> & { display_order?: number };
+
+const emptyValues = (defaultCurrency: string): FormValues => ({
   name: "",
   description: "",
   total_inventory: 1,
   max_occupancy: 2,
   base_rate: 1500,
-  base_currency: "THB",
-};
+  base_currency: defaultCurrency,
+});
 
 export default function RoomTypesPage() {
   const { activeHotel } = useShell();
   const [items, setItems] = useState<RoomType[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [modal, setModal] = useState<{ mode: "create" } | { mode: "edit"; rt: RoomType } | null>(null);
+  const [modalState, setModalState] = useState<
+    { mode: "create" } | { mode: "edit"; rt: RoomType } | null
+  >(null);
+  const [deleteTarget, setDeleteTarget] = useState<RoomType | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -52,13 +78,18 @@ export default function RoomTypesPage() {
     void load();
   }, [activeHotel.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  async function remove(rt: RoomType) {
-    if (!window.confirm(`${t("delete")} ${rt.name}?`)) return;
+  async function confirmDelete() {
+    if (!deleteTarget) return;
+    setDeleting(true);
     try {
-      await RoomTypes.remove(activeHotel.id, rt.id);
+      await RoomTypes.remove(activeHotel.id, deleteTarget.id);
+      notifySuccess(`${t("delete")} ✓`);
+      setDeleteTarget(null);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
+    } finally {
+      setDeleting(false);
     }
   }
 
@@ -67,91 +98,174 @@ export default function RoomTypesPage() {
       <PageHeader
         title={t("nav_room_types")}
         description={activeHotel.name}
-        actions={<Button onClick={() => setModal({ mode: "create" })}>{t("add")}</Button>}
+        actions={
+          <Button onClick={() => setModalState({ mode: "create" })} color="dark">
+            {t("add")}
+          </Button>
+        }
       />
 
       <ErrorBanner message={error} />
 
       {loading ? (
-        <p className="text-sm text-neutral-500">{t("loading")}</p>
+        <Center py="xl">
+          <Loader size="sm" />
+        </Center>
       ) : items.length === 0 ? (
         <EmptyState message={t("no_data")} />
       ) : (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
           {items.map((rt) => (
-            <Card
-              key={rt.id}
-              title={rt.name}
-              actions={
-                <div className="flex gap-1">
-                  <Button variant="ghost" onClick={() => setModal({ mode: "edit", rt })}>
-                    {t("edit")}
-                  </Button>
-                  <Button variant="ghost" onClick={() => remove(rt)}>
-                    {t("delete")}
-                  </Button>
-                </div>
-              }
-            >
-              <dl className="grid grid-cols-2 gap-y-1 text-sm">
-                <dt className="text-neutral-500">{t("total_inventory")}</dt>
-                <dd>{rt.total_inventory}</dd>
-                <dt className="text-neutral-500">{t("max_occupancy")}</dt>
-                <dd>{rt.max_occupancy}</dd>
-                <dt className="text-neutral-500">{t("base_rate")}</dt>
-                <dd className="font-mono">
-                  {rt.base_rate.toFixed(2)} {rt.base_currency}
-                </dd>
-                <dt className="text-neutral-500">Enabled</dt>
-                <dd>{rt.enabled ? "yes" : "no"}</dd>
-              </dl>
+            <Card key={rt.id} withBorder radius="md" padding="lg">
+              <Group justify="space-between" align="flex-start" wrap="nowrap" mb="sm">
+                <Title order={4} size="h5" lineClamp={2}>
+                  {rt.name}
+                </Title>
+                <Group gap={4} wrap="nowrap">
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    onClick={() => setModalState({ mode: "edit", rt })}
+                    aria-label={t("edit")}
+                  >
+                    ✎
+                  </ActionIcon>
+                  <ActionIcon
+                    variant="subtle"
+                    color="red"
+                    onClick={() => setDeleteTarget(rt)}
+                    aria-label={t("delete")}
+                  >
+                    ✕
+                  </ActionIcon>
+                </Group>
+              </Group>
+
+              <Stack gap={6}>
+                <Row label={t("total_inventory")} value={rt.total_inventory} />
+                <Row label={t("max_occupancy")} value={rt.max_occupancy} />
+                <Row
+                  label={t("base_rate")}
+                  value={`${rt.base_rate.toFixed(2)} ${rt.base_currency}`}
+                  mono
+                />
+                <Row
+                  label="Enabled"
+                  value={
+                    <Badge
+                      size="sm"
+                      color={rt.enabled ? "teal" : "gray"}
+                      variant="light"
+                    >
+                      {rt.enabled ? "yes" : "no"}
+                    </Badge>
+                  }
+                />
+              </Stack>
+
               {rt.description && (
-                <p className="mt-3 text-xs text-neutral-600">{rt.description}</p>
+                <Text size="xs" c="dimmed" mt="sm">
+                  {rt.description}
+                </Text>
               )}
             </Card>
           ))}
-        </div>
+        </SimpleGrid>
       )}
 
       <RoomTypeFormModal
-        open={!!modal}
-        onClose={() => setModal(null)}
+        state={modalState}
+        onClose={() => setModalState(null)}
         hotelID={activeHotel.id}
         defaultCurrency={activeHotel.base_currency}
-        rt={modal?.mode === "edit" ? modal.rt : null}
         onSaved={async () => {
-          setModal(null);
+          setModalState(null);
           await load();
         }}
       />
+
+      <Modal
+        opened={!!deleteTarget}
+        onClose={() => setDeleteTarget(null)}
+        title={t("delete")}
+        centered
+        radius="md"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            {t("delete")} <b>{deleteTarget?.name}</b>?
+          </Text>
+          <Group justify="flex-end">
+            <Button variant="default" onClick={() => setDeleteTarget(null)}>
+              {t("cancel")}
+            </Button>
+            <Button color="red" loading={deleting} onClick={confirmDelete}>
+              {t("delete")}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </div>
   );
 }
 
+function Row({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: React.ReactNode;
+  mono?: boolean;
+}) {
+  return (
+    <Group justify="space-between">
+      <Text size="sm" c="dimmed">
+        {label}
+      </Text>
+      <Text size="sm" ff={mono ? "monospace" : undefined}>
+        {value}
+      </Text>
+    </Group>
+  );
+}
+
 function RoomTypeFormModal({
-  open,
+  state,
   onClose,
   hotelID,
   defaultCurrency,
-  rt,
   onSaved,
 }: {
-  open: boolean;
+  state: { mode: "create" } | { mode: "edit"; rt: RoomType } | null;
   onClose: () => void;
   hotelID: string;
   defaultCurrency: string;
-  rt: RoomType | null;
   onSaved: () => Promise<void>;
 }) {
-  const [form, setForm] = useState<RoomTypeCreateRequest>(emptyForm);
+  const editing = state?.mode === "edit";
+  const rt = editing ? state.rt : null;
+
+  const [opened, modal] = useDisclosure(false);
   const [photos, setPhotos] = useState<Photo[]>([]);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const form = useForm<FormValues>({
+    initialValues: emptyValues(defaultCurrency),
+    validate: {
+      name: (v) => (v.trim() ? null : t("required_field")),
+    },
+  });
+
   useEffect(() => {
-    if (!open) return;
+    if (state === null) {
+      modal.close();
+      return;
+    }
+    modal.open();
     if (rt) {
-      setForm({
+      form.setValues({
         name: rt.name,
         description: rt.description || "",
         total_inventory: rt.total_inventory,
@@ -164,21 +278,24 @@ function RoomTypeFormModal({
         .then((r) => setPhotos(r.photos))
         .catch(() => setPhotos([]));
     } else {
-      setForm({ ...emptyForm, base_currency: defaultCurrency });
+      form.setValues(emptyValues(defaultCurrency));
       setPhotos([]);
     }
     setErr(null);
-  }, [open, rt, defaultCurrency, hotelID]);
+    // form is intentionally not in deps — its setValues would loop the effect
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state, defaultCurrency, hotelID]);
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(values: FormValues) {
     setSaving(true);
     setErr(null);
     try {
       if (rt) {
-        await RoomTypes.update(hotelID, rt.id, form);
+        await RoomTypes.update(hotelID, rt.id, values);
+        notifySuccess(`${t("save")} ✓`);
       } else {
-        await RoomTypes.create(hotelID, form);
+        await RoomTypes.create(hotelID, values);
+        notifySuccess(`${t("add")} ✓`);
       }
       await onSaved();
     } catch (e) {
@@ -189,84 +306,76 @@ function RoomTypeFormModal({
   }
 
   return (
-    <Modal open={open} onClose={onClose} title={rt ? t("edit") : t("add")}>
-      <form onSubmit={submit} className="space-y-3">
-        <Field label={t("room_type_name")}>
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title={rt ? t("edit") : t("add")}
+      centered
+      radius="md"
+      size="lg"
+    >
+      <form onSubmit={form.onSubmit(submit)}>
+        <Stack gap="sm">
           <TextInput
+            label={t("room_type_name")}
             required
-            value={form.name}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
+            {...form.getInputProps("name")}
           />
-        </Field>
-        <Field label={t("description")}>
-          <TextArea
+          <Textarea
+            label={t("description")}
             rows={2}
-            value={form.description || ""}
-            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            {...form.getInputProps("description")}
           />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t("total_inventory")}>
-            <TextInput
-              type="number"
+          <SimpleGrid cols={2} spacing="sm">
+            <NumberInput
+              label={t("total_inventory")}
               min={0}
               required
-              value={form.total_inventory}
-              onChange={(e) =>
-                setForm({ ...form, total_inventory: parseInt(e.target.value || "0", 10) })
-              }
+              {...form.getInputProps("total_inventory")}
             />
-          </Field>
-          <Field label={t("max_occupancy")}>
-            <TextInput
-              type="number"
+            <NumberInput
+              label={t("max_occupancy")}
               min={1}
               required
-              value={form.max_occupancy}
-              onChange={(e) =>
-                setForm({ ...form, max_occupancy: parseInt(e.target.value || "1", 10) })
-              }
+              {...form.getInputProps("max_occupancy")}
             />
-          </Field>
-          <Field label={t("base_rate")}>
-            <TextInput
-              type="number"
-              step="0.01"
+            <NumberInput
+              label={t("base_rate")}
               min={0}
+              step={0.01}
+              decimalScale={2}
               required
-              value={form.base_rate}
-              onChange={(e) =>
-                setForm({ ...form, base_rate: parseFloat(e.target.value || "0") })
-              }
+              {...form.getInputProps("base_rate")}
             />
-          </Field>
-          <Field label={t("currency")}>
             <TextInput
-              value={form.base_currency || ""}
-              onChange={(e) => setForm({ ...form, base_currency: e.target.value })}
+              label={t("currency")}
+              {...form.getInputProps("base_currency")}
             />
-          </Field>
-        </div>
-        {rt && (
-          <Field label={t("upload_photo")}>
-            <PhotoUploader
-              hotelID={hotelID}
-              kind="room_type_photo"
-              roomTypeID={rt.id}
-              photos={photos}
-              onChange={setPhotos}
-            />
-          </Field>
-        )}
-        <ErrorBanner message={err} />
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            {t("cancel")}
-          </Button>
-          <Button type="submit" loading={saving}>
-            {t("save")}
-          </Button>
-        </div>
+          </SimpleGrid>
+          {rt && (
+            <Stack gap={4}>
+              <Text size="sm" fw={500} c="gray.7">
+                {t("upload_photo")}
+              </Text>
+              <PhotoUploader
+                hotelID={hotelID}
+                kind="room_type_photo"
+                roomTypeID={rt.id}
+                photos={photos}
+                onChange={setPhotos}
+              />
+            </Stack>
+          )}
+          <ErrorBanner message={err} />
+          <Group justify="flex-end" mt="sm">
+            <Button type="button" variant="default" onClick={onClose}>
+              {t("cancel")}
+            </Button>
+            <Button type="submit" loading={saving} color="dark">
+              {t("save")}
+            </Button>
+          </Group>
+        </Stack>
       </form>
     </Modal>
   );

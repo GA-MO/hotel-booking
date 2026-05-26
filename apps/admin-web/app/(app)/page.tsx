@@ -1,11 +1,26 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useState } from "react";
+
+import {
+  Anchor,
+  Button,
+  Card,
+  Center,
+  Group,
+  Loader,
+  ScrollArea,
+  SimpleGrid,
+  Stack,
+  Table,
+  Text,
+  Title,
+} from "@mantine/core";
 
 import { useShell } from "@/app/components/AppShell";
 import {
-  Card,
   EmptyState,
   ErrorBanner,
   PageHeader,
@@ -48,7 +63,9 @@ export default function DashboardPage() {
   const today = todayISO(activeHotel.timezone);
 
   const todayCheckIns = bookings.filter(
-    (b) => b.check_in_date === today && (b.status === "confirmed" || b.status === "checked_in")
+    (b) =>
+      b.check_in_date === today &&
+      (b.status === "confirmed" || b.status === "checked_in")
   );
   const occupiedToday = bookings
     .filter(
@@ -72,86 +89,117 @@ export default function DashboardPage() {
         title={t("nav_dashboard")}
         description={activeHotel.name}
         actions={
-          <Link
+          <Button
+            component={Link}
             href="/bookings"
-            className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-100"
+            variant="default"
+            size="sm"
           >
             {t("nav_bookings")}
-          </Link>
+          </Button>
         }
       />
 
       <ErrorBanner message={error} />
 
       {sub && (
-        <div className="mb-6 rounded-md border border-neutral-200 bg-white px-4 py-3 text-sm">
-          <span className="mr-2 font-medium text-neutral-700">
-            {t("subscription_status")}:
-          </span>
-          <StatusBadge value={sub.status} />
-        </div>
+        <Card withBorder radius="md" padding="sm" mb="lg">
+          <Group gap="sm">
+            <Text size="sm" fw={500} c="gray.7">
+              {t("subscription_status")}:
+            </Text>
+            <StatusBadge value={sub.status} />
+          </Group>
+        </Card>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Card title={t("today_check_ins")}>
-          <p className="text-3xl font-semibold">{todayCheckIns.length}</p>
-        </Card>
-        <Card title={t("occupancy_today")}>
-          <p className="text-3xl font-semibold">{occupancy}%</p>
-          <p className="mt-1 text-xs text-neutral-500">
-            {occupiedToday} / {totalInventory}
-          </p>
-        </Card>
-        <Card title={t("nav_room_types")}>
-          <p className="text-3xl font-semibold">{roomTypes.length}</p>
-        </Card>
-      </div>
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="md">
+        <Stat title={t("today_check_ins")} value={todayCheckIns.length} />
+        <Stat
+          title={t("occupancy_today")}
+          value={`${occupancy}%`}
+          sub={`${occupiedToday} / ${totalInventory}`}
+        />
+        <Stat title={t("nav_room_types")} value={roomTypes.length} />
+      </SimpleGrid>
 
-      <div className="mt-6">
-        <Card title={t("recent_bookings")}>
-          {loading ? (
-            <p className="text-sm text-neutral-500">{t("loading")}</p>
-          ) : recent.length === 0 ? (
-            <EmptyState message={t("no_data")} />
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-500">
-                    <th className="py-2">{t("booking_reference")}</th>
-                    <th>{t("guest_name")}</th>
-                    <th>{t("check_in")}</th>
-                    <th>{t("status")}</th>
-                    <th className="text-right">{t("total")}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {recent.map((b) => (
-                    <tr key={b.id} className="border-b border-neutral-100">
-                      <td className="py-2">
-                        <Link
-                          href={`/bookings/${b.id}`}
-                          className="font-mono text-xs text-neutral-700 underline"
-                        >
-                          {b.reference}
-                        </Link>
-                      </td>
-                      <td>{b.guest_name}</td>
-                      <td>{b.check_in_date}</td>
-                      <td>
-                        <StatusBadge value={b.status} />
-                      </td>
-                      <td className="text-right font-mono">
-                        {centsToDisplay(b.total_cents, b.currency)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-      </div>
+      <Card withBorder radius="md" padding="lg" mt="lg">
+        <Title order={3} size="h5" mb="md">
+          {t("recent_bookings")}
+        </Title>
+        {loading ? (
+          <Center py="md">
+            <Loader size="sm" />
+          </Center>
+        ) : recent.length === 0 ? (
+          <EmptyState message={t("no_data")} />
+        ) : (
+          <ScrollArea>
+            <Table verticalSpacing="sm" highlightOnHover>
+              <Table.Thead>
+                <Table.Tr>
+                  <Table.Th>{t("booking_reference")}</Table.Th>
+                  <Table.Th>{t("guest_name")}</Table.Th>
+                  <Table.Th>{t("check_in")}</Table.Th>
+                  <Table.Th>{t("status")}</Table.Th>
+                  <Table.Th ta="right">{t("total")}</Table.Th>
+                </Table.Tr>
+              </Table.Thead>
+              <Table.Tbody>
+                {recent.map((b) => (
+                  <Table.Tr key={b.id}>
+                    <Table.Td>
+                      <Anchor
+                        component={Link}
+                        href={`/bookings/${b.id}` as Route}
+                        ff="monospace"
+                        size="xs"
+                        c="dark"
+                      >
+                        {b.reference}
+                      </Anchor>
+                    </Table.Td>
+                    <Table.Td>{b.guest_name}</Table.Td>
+                    <Table.Td>{b.check_in_date}</Table.Td>
+                    <Table.Td>
+                      <StatusBadge value={b.status} />
+                    </Table.Td>
+                    <Table.Td ta="right" ff="monospace">
+                      {centsToDisplay(b.total_cents, b.currency)}
+                    </Table.Td>
+                  </Table.Tr>
+                ))}
+              </Table.Tbody>
+            </Table>
+          </ScrollArea>
+        )}
+      </Card>
     </div>
+  );
+}
+
+function Stat({
+  title,
+  value,
+  sub,
+}: {
+  title: string;
+  value: string | number;
+  sub?: string;
+}) {
+  return (
+    <Card withBorder radius="md" padding="lg">
+      <Text size="sm" c="dimmed" mb={4}>
+        {title}
+      </Text>
+      <Text fz={28} fw={600}>
+        {value}
+      </Text>
+      {sub && (
+        <Text size="xs" c="dimmed" mt={4}>
+          {sub}
+        </Text>
+      )}
+    </Card>
   );
 }

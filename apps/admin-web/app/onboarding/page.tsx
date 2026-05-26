@@ -3,21 +3,29 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import {
+  Button,
+  Card,
+  Container,
+  Group,
+  NativeSelect,
+  NumberInput,
+  Stack,
+  Stepper,
+  Textarea,
+  TextInput,
+  Title,
+} from "@mantine/core";
+import { useForm } from "@mantine/form";
+
 import { Hotels, Landing, RoomTypes } from "@/app/lib/api";
 import {
   isAuthed,
   markOnboardingDone,
   setActiveHotelID,
 } from "@/app/lib/auth";
-import {
-  Button,
-  Card,
-  ErrorBanner,
-  Field,
-  Select,
-  TextArea,
-  TextInput,
-} from "@/app/components/ui";
+import { ErrorBanner } from "@/app/components/ui";
+import { notifySuccess } from "@/app/lib/notify";
 import { t } from "@/app/i18n";
 import type { Hotel } from "@/app/lib/types";
 
@@ -28,37 +36,59 @@ const TIMEZONES = [
   "Asia/Jakarta",
 ];
 const CURRENCIES = ["THB", "USD", "SGD"];
+const LOCALES = [
+  { value: "th", label: "ไทย" },
+  { value: "en", label: "English" },
+];
 
-type Step = 1 | 2 | 3;
+const SLUG_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
 export default function OnboardingPage() {
   const router = useRouter();
-  const [step, setStep] = useState<Step>(1);
+  const [active, setActive] = useState(0);
   const [hotel, setHotel] = useState<Hotel | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  // step 1 — hotel basics
-  const [name, setName] = useState("");
-  const [slug, setSlug] = useState("");
-  const [city, setCity] = useState("");
-  const [country, setCountry] = useState("TH");
-  const [timezone, setTimezone] = useState("Asia/Bangkok");
-  const [currency, setCurrency] = useState("THB");
-  const [phone, setPhone] = useState("");
-  const [address, setAddress] = useState("");
-
-  // step 2 — room type
-  const [rtName, setRtName] = useState("");
-  const [rtInventory, setRtInventory] = useState(5);
-  const [rtMaxOccupancy, setRtMaxOccupancy] = useState(2);
-  const [rtRate, setRtRate] = useState(1500);
-
-  // step 3 — landing
-  const [pageTitle, setPageTitle] = useState("");
-  const [heroText, setHeroText] = useState("");
-  const [pageLocale, setPageLocale] = useState("th");
-
   const [submitting, setSubmitting] = useState(false);
+
+  const hotelForm = useForm({
+    initialValues: {
+      name: "",
+      slug: "",
+      city: "",
+      country: "TH",
+      timezone: "Asia/Bangkok",
+      currency: "THB",
+      phone: "",
+      address: "",
+    },
+    validate: {
+      name: (v) => (v.trim() ? null : t("required_field")),
+      slug: (v) => (SLUG_RE.test(v) ? null : t("slug_hint")),
+    },
+  });
+
+  const roomTypeForm = useForm({
+    initialValues: {
+      name: "",
+      inventory: 5,
+      maxOccupancy: 2,
+      rate: 1500,
+    },
+    validate: {
+      name: (v) => (v.trim() ? null : t("required_field")),
+    },
+  });
+
+  const landingForm = useForm({
+    initialValues: {
+      locale: "th",
+      title: "",
+      heroText: "",
+    },
+    validate: {
+      title: (v) => (v.trim() ? null : t("required_field")),
+    },
+  });
 
   useEffect(() => {
     if (!isAuthed()) {
@@ -75,26 +105,26 @@ export default function OnboardingPage() {
       .catch(() => {});
   }, [router]);
 
-  async function submitStep1(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitHotel(values: typeof hotelForm.values) {
     setSubmitting(true);
     setError(null);
     try {
       const created = await Hotels.create({
-        slug,
-        name,
-        country,
-        timezone,
-        base_currency: currency,
+        slug: values.slug,
+        name: values.name,
+        country: values.country,
+        timezone: values.timezone,
+        base_currency: values.currency,
       });
       const updated = await Hotels.update(created.id, {
-        city,
-        phone,
-        address_line: address,
+        city: values.city,
+        phone: values.phone,
+        address_line: values.address,
       }).catch(() => created);
       setActiveHotelID(updated.id);
       setHotel(updated);
-      setStep(2);
+      notifySuccess(t("onboarding_step1") + " ✓");
+      setActive(1);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
     } finally {
@@ -102,20 +132,20 @@ export default function OnboardingPage() {
     }
   }
 
-  async function submitStep2(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitRoomType(values: typeof roomTypeForm.values) {
     if (!hotel) return;
     setSubmitting(true);
     setError(null);
     try {
       await RoomTypes.create(hotel.id, {
-        name: rtName,
-        total_inventory: rtInventory,
-        max_occupancy: rtMaxOccupancy,
-        base_rate: rtRate,
+        name: values.name,
+        total_inventory: values.inventory,
+        max_occupancy: values.maxOccupancy,
+        base_rate: values.rate,
         base_currency: hotel.base_currency,
       });
-      setStep(3);
+      notifySuccess(t("onboarding_step2") + " ✓");
+      setActive(2);
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
     } finally {
@@ -123,26 +153,29 @@ export default function OnboardingPage() {
     }
   }
 
-  async function submitStep3(e: React.FormEvent) {
-    e.preventDefault();
+  async function submitLanding(values: typeof landingForm.values) {
     if (!hotel) return;
     setSubmitting(true);
     setError(null);
     try {
-      await Landing.upsert(hotel.id, pageLocale, {
+      await Landing.upsert(hotel.id, values.locale, {
         branding: { primary_color: "#0f172a", accent_color: "#f59e0b" },
-        seo: { title: pageTitle },
+        seo: { title: values.title },
         tracking: {},
         sections: [
           {
             type: "hero",
             enabled: true,
             order: 0,
-            content: { headline: pageTitle, subheadline: heroText },
+            content: {
+              headline: values.title,
+              subheadline: values.heroText,
+            },
           },
         ],
       });
       markOnboardingDone();
+      notifySuccess(t("onboarding_done"));
       router.replace("/");
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
@@ -151,192 +184,171 @@ export default function OnboardingPage() {
     }
   }
 
-  function StepDot({ n }: { n: Step }) {
-    const active = step === n;
-    const done = step > n;
-    return (
-      <div className="flex items-center gap-2">
-        <span
-          className={`flex h-6 w-6 items-center justify-center rounded-full text-xs font-medium ${
-            done
-              ? "bg-emerald-600 text-white"
-              : active
-                ? "bg-neutral-900 text-white"
-                : "bg-neutral-200 text-neutral-600"
-          }`}
-        >
-          {done ? "✓" : n}
-        </span>
-        <span className={`text-sm ${active ? "font-semibold" : "text-neutral-500"}`}>
-          {n === 1 && t("onboarding_step1")}
-          {n === 2 && t("onboarding_step2")}
-          {n === 3 && t("onboarding_step3")}
-        </span>
-      </div>
-    );
-  }
-
   return (
-    <main className="mx-auto min-h-screen max-w-2xl px-4 py-10">
-      <h1 className="mb-2 text-2xl font-semibold">{t("onboarding_title")}</h1>
-      <div className="mb-6 flex flex-wrap gap-x-6 gap-y-2">
-        <StepDot n={1} />
-        <StepDot n={2} />
-        <StepDot n={3} />
-      </div>
+    <Container size="md" py="xl">
+      <Title order={1} size="h2" mb="lg">
+        {t("onboarding_title")}
+      </Title>
 
-      <ErrorBanner message={error} />
-
-      {step === 1 && (
-        <Card title={t("onboarding_step1")}>
-          <form onSubmit={submitStep1} className="space-y-3">
-            <Field label={t("hotel_name")}>
-              <TextInput required value={name} onChange={(e) => setName(e.target.value)} />
-            </Field>
-            <Field label={t("slug")} hint={t("slug_hint")}>
-              <TextInput
-                required
-                pattern="^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
-                value={slug}
-                onChange={(e) => setSlug(e.target.value.toLowerCase())}
-              />
-            </Field>
-            <Field label={t("address")}>
-              <TextArea
-                rows={2}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t("city")}>
-                <TextInput value={city} onChange={(e) => setCity(e.target.value)} />
-              </Field>
-              <Field label={t("country")}>
-                <TextInput value={country} onChange={(e) => setCountry(e.target.value)} />
-              </Field>
-              <Field label={t("timezone")}>
-                <Select value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                  {TIMEZONES.map((tz) => (
-                    <option key={tz} value={tz}>
-                      {tz}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label={t("currency")}>
-                <Select value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                  {CURRENCIES.map((c) => (
-                    <option key={c} value={c}>
-                      {c}
-                    </option>
-                  ))}
-                </Select>
-              </Field>
-              <Field label={t("phone")}>
-                <TextInput value={phone} onChange={(e) => setPhone(e.target.value)} />
-              </Field>
-            </div>
-            <div className="flex justify-end">
-              <Button type="submit" loading={submitting}>
-                {t("next")}
-              </Button>
-            </div>
-          </form>
-        </Card>
-      )}
-
-      {step === 2 && (
-        <Card title={t("onboarding_step2")}>
-          <form onSubmit={submitStep2} className="space-y-3">
-            <Field label={t("room_type_name")}>
-              <TextInput
-                required
-                placeholder="Standard / Deluxe / Suite"
-                value={rtName}
-                onChange={(e) => setRtName(e.target.value)}
-              />
-            </Field>
-            <div className="grid grid-cols-2 gap-3">
-              <Field label={t("total_inventory")}>
+      <Stepper
+        active={active}
+        onStepClick={(s) => {
+          // Allow backward navigation only — forward requires submitting the step.
+          if (s < active) setActive(s);
+        }}
+        mb="lg"
+        allowNextStepsSelect={false}
+      >
+        <Stepper.Step label={t("onboarding_step1")}>
+          <Card withBorder radius="md" padding="lg" mt="md">
+            <form onSubmit={hotelForm.onSubmit(submitHotel)}>
+              <Stack gap="sm">
                 <TextInput
-                  type="number"
-                  min={1}
+                  label={t("hotel_name")}
                   required
-                  value={rtInventory}
+                  {...hotelForm.getInputProps("name")}
+                />
+                <TextInput
+                  label={t("slug")}
+                  description={t("slug_hint")}
+                  required
+                  {...hotelForm.getInputProps("slug")}
                   onChange={(e) =>
-                    setRtInventory(parseInt(e.target.value || "1", 10))
+                    hotelForm.setFieldValue(
+                      "slug",
+                      e.currentTarget.value.toLowerCase()
+                    )
                   }
                 />
-              </Field>
-              <Field label={t("max_occupancy")}>
-                <TextInput
-                  type="number"
-                  min={1}
-                  required
-                  value={rtMaxOccupancy}
-                  onChange={(e) =>
-                    setRtMaxOccupancy(parseInt(e.target.value || "1", 10))
-                  }
+                <Textarea
+                  label={t("address")}
+                  rows={2}
+                  {...hotelForm.getInputProps("address")}
                 />
-              </Field>
-              <Field label={t("base_rate")}>
+                <Group grow>
+                  <TextInput
+                    label={t("city")}
+                    {...hotelForm.getInputProps("city")}
+                  />
+                  <TextInput
+                    label={t("country")}
+                    {...hotelForm.getInputProps("country")}
+                  />
+                </Group>
+                <Group grow>
+                  <NativeSelect
+                    label={t("timezone")}
+                    data={TIMEZONES}
+                    {...hotelForm.getInputProps("timezone")}
+                  />
+                  <NativeSelect
+                    label={t("currency")}
+                    data={CURRENCIES}
+                    {...hotelForm.getInputProps("currency")}
+                  />
+                </Group>
                 <TextInput
-                  type="number"
-                  step="0.01"
-                  min={0}
-                  required
-                  value={rtRate}
-                  onChange={(e) => setRtRate(parseFloat(e.target.value || "0"))}
+                  label={t("phone")}
+                  {...hotelForm.getInputProps("phone")}
                 />
-              </Field>
-            </div>
-            <div className="flex justify-between">
-              <Button type="button" variant="secondary" onClick={() => setStep(1)}>
-                {t("back")}
-              </Button>
-              <Button type="submit" loading={submitting}>
-                {t("next")}
-              </Button>
-            </div>
-          </form>
-        </Card>
-      )}
+                <ErrorBanner message={error} />
+                <Group justify="flex-end">
+                  <Button type="submit" loading={submitting} color="dark">
+                    {t("next")}
+                  </Button>
+                </Group>
+              </Stack>
+            </form>
+          </Card>
+        </Stepper.Step>
 
-      {step === 3 && (
-        <Card title={t("onboarding_step3")}>
-          <form onSubmit={submitStep3} className="space-y-3">
-            <Field label={t("locale")}>
-              <Select value={pageLocale} onChange={(e) => setPageLocale(e.target.value)}>
-                <option value="th">ไทย</option>
-                <option value="en">English</option>
-              </Select>
-            </Field>
-            <Field label={t("landing_title")}>
-              <TextInput
-                required
-                value={pageTitle}
-                onChange={(e) => setPageTitle(e.target.value)}
-              />
-            </Field>
-            <Field label={t("hero_text")}>
-              <TextArea
-                rows={3}
-                value={heroText}
-                onChange={(e) => setHeroText(e.target.value)}
-              />
-            </Field>
-            <div className="flex justify-between">
-              <Button type="button" variant="secondary" onClick={() => setStep(2)}>
-                {t("back")}
-              </Button>
-              <Button type="submit" loading={submitting}>
-                {t("onboarding_done")}
-              </Button>
-            </div>
-          </form>
-        </Card>
-      )}
-    </main>
+        <Stepper.Step label={t("onboarding_step2")}>
+          <Card withBorder radius="md" padding="lg" mt="md">
+            <form onSubmit={roomTypeForm.onSubmit(submitRoomType)}>
+              <Stack gap="sm">
+                <TextInput
+                  label={t("room_type_name")}
+                  placeholder="Standard / Deluxe / Suite"
+                  required
+                  {...roomTypeForm.getInputProps("name")}
+                />
+                <Group grow>
+                  <NumberInput
+                    label={t("total_inventory")}
+                    min={1}
+                    required
+                    {...roomTypeForm.getInputProps("inventory")}
+                  />
+                  <NumberInput
+                    label={t("max_occupancy")}
+                    min={1}
+                    required
+                    {...roomTypeForm.getInputProps("maxOccupancy")}
+                  />
+                  <NumberInput
+                    label={t("base_rate")}
+                    min={0}
+                    step={0.01}
+                    decimalScale={2}
+                    required
+                    {...roomTypeForm.getInputProps("rate")}
+                  />
+                </Group>
+                <ErrorBanner message={error} />
+                <Group justify="space-between">
+                  <Button
+                    type="button"
+                    variant="default"
+                    onClick={() => setActive(0)}
+                  >
+                    {t("back")}
+                  </Button>
+                  <Button type="submit" loading={submitting} color="dark">
+                    {t("next")}
+                  </Button>
+                </Group>
+              </Stack>
+            </form>
+          </Card>
+        </Stepper.Step>
+
+        <Stepper.Step label={t("onboarding_step3")}>
+          <Card withBorder radius="md" padding="lg" mt="md">
+            <form onSubmit={landingForm.onSubmit(submitLanding)}>
+              <Stack gap="sm">
+                <NativeSelect
+                  label={t("locale")}
+                  data={LOCALES}
+                  {...landingForm.getInputProps("locale")}
+                />
+                <TextInput
+                  label={t("landing_title")}
+                  required
+                  {...landingForm.getInputProps("title")}
+                />
+                <Textarea
+                  label={t("hero_text")}
+                  rows={3}
+                  {...landingForm.getInputProps("heroText")}
+                />
+                <ErrorBanner message={error} />
+                <Group justify="space-between">
+                  <Button
+                    type="button"
+                    variant="default"
+                    onClick={() => setActive(1)}
+                  >
+                    {t("back")}
+                  </Button>
+                  <Button type="submit" loading={submitting} color="dark">
+                    {t("onboarding_done")}
+                  </Button>
+                </Group>
+              </Stack>
+            </form>
+          </Card>
+        </Stepper.Step>
+      </Stepper>
+    </Container>
   );
 }

@@ -2,21 +2,32 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { useShell } from "@/app/components/AppShell";
 import {
   Button,
+  Center,
+  Checkbox,
+  Group,
+  Loader,
+  Modal,
+  NativeSelect,
+  NumberInput,
+  Paper,
+  Stack,
+  Text,
+  TextInput,
+} from "@mantine/core";
+import { useForm } from "@mantine/form";
+
+import { useShell } from "@/app/components/AppShell";
+import {
   EmptyState,
   ErrorBanner,
-  Field,
-  Modal,
   PageHeader,
-  Select,
-  SuccessBanner,
-  TextInput,
 } from "@/app/components/ui";
 import { Availability, Bookings, RoomTypes } from "@/app/lib/api";
 import { addDaysISO, daysBetween, monthRange, todayISO } from "@/app/lib/dates";
 import { parseDisplayToCents, rateToCents } from "@/app/lib/money";
+import { notifySuccess } from "@/app/lib/notify";
 import { t } from "@/app/i18n";
 import type {
   AvailabilityDay,
@@ -50,8 +61,6 @@ function toRateOverride(input: string): string | null {
 function hasOverride(rt: RoomType, day: AvailabilityDay): boolean {
   if (day.closed) return true;
   if (day.total_inventory !== rt.total_inventory) return true;
-  // Normalise rate to a comparable number; rt.base_rate is `number`, day.rate
-  // is a decimal string like "1800.00".
   const dayRate = parseFloat(day.rate);
   return Number.isFinite(dayRate) && Math.abs(dayRate - rt.base_rate) > 0.005;
 }
@@ -67,13 +76,13 @@ export default function CalendarPage() {
 
   const [roomTypes, setRoomTypes] = useState<RoomType[]>([]);
   const [bookings, setBookings] = useState<Booking[]>([]);
-  const [overrides, setOverrides] = useState<Map<SelKey, AvailabilityDay>>(new Map());
+  const [overrides, setOverrides] = useState<Map<SelKey, AvailabilityDay>>(
+    new Map()
+  );
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [modalCell, setModalCell] = useState<{ rt: RoomType; date: string } | null>(null);
 
-  // Bulk-edit mode state. When bulkMode is true, cells toggle selection
-  // instead of opening the walk-in modal. lastSel anchors shift-range.
   const [bulkMode, setBulkMode] = useState(false);
   const [selected, setSelected] = useState<Set<SelKey>>(new Set());
   const [lastSel, setLastSel] = useState<{ rtID: string; date: string } | null>(null);
@@ -83,7 +92,6 @@ export default function CalendarPage() {
   const [bulkBlocked, setBulkBlocked] = useState(false);
   const [bulkSaving, setBulkSaving] = useState(false);
   const [bulkErr, setBulkErr] = useState<string | null>(null);
-  const [bulkSuccess, setBulkSuccess] = useState<string | null>(null);
 
   const { days } = useMemo(
     () => monthRange(now.year, now.monthIndex),
@@ -96,7 +104,6 @@ export default function CalendarPage() {
     const [rt, b, av] = await Promise.all([
       RoomTypes.list(activeHotel.id),
       Bookings.list(activeHotel.id, { limit: 500 }),
-      // best-effort: availability is a UX hint, not load-bearing
       Availability.get(activeHotel.id, start, end).catch(
         () => ({ days: [] } as { days: AvailabilityDay[] }),
       ),
@@ -151,9 +158,6 @@ export default function CalendarPage() {
     return map;
   }, [days, roomTypes, bookings]);
 
-  // When the user enters bulk mode and selects exactly ONE cell that already
-  // has an override, pre-fill the bulk form so they can tweak instead of
-  // re-typing. Multi-cell selection keeps inputs empty (write-only semantics).
   useEffect(() => {
     if (!bulkMode || selected.size !== 1) return;
     const [only] = Array.from(selected);
@@ -161,7 +165,9 @@ export default function CalendarPage() {
     const [rtID] = only.split("|");
     const rt = roomTypes.find((r) => r.id === rtID);
     if (!day || !rt || !hasOverride(rt, day)) return;
-    setBulkInv(day.total_inventory !== rt.total_inventory ? String(day.total_inventory) : "");
+    setBulkInv(
+      day.total_inventory !== rt.total_inventory ? String(day.total_inventory) : ""
+    );
     setBulkRate(
       Math.abs(parseFloat(day.rate) - rt.base_rate) > 0.005 ? day.rate : "",
     );
@@ -187,7 +193,6 @@ export default function CalendarPage() {
     setBulkRate("");
     setBulkBlocked(false);
     setBulkErr(null);
-    setBulkSuccess(null);
   }
 
   function onCellClick(rt: RoomType, date: string, e: React.MouseEvent) {
@@ -197,8 +202,6 @@ export default function CalendarPage() {
     }
     const next = new Set(selected);
     const k = cellKey(rt.id, date);
-    // Shift-range only within the same room-type row, since the override grid
-    // is per (room_type_id, date) and a cross-row range rarely matches intent.
     if (e.shiftKey && lastSel && lastSel.rtID === rt.id) {
       const i0 = days.indexOf(lastSel.date);
       const i1 = days.indexOf(date);
@@ -245,7 +248,6 @@ export default function CalendarPage() {
 
   async function saveOverrides() {
     setBulkErr(null);
-    setBulkSuccess(null);
     if (bulkRate.trim() !== "" && toRateOverride(bulkRate) === null) {
       setBulkErr(t("bulk_invalid_rate"));
       return;
@@ -266,7 +268,7 @@ export default function CalendarPage() {
     try {
       await Availability.upsert(activeHotel.id, items);
       clearSelection();
-      setBulkSuccess(t("bulk_saved"));
+      notifySuccess(t("bulk_saved"));
       await reload();
     } catch (e) {
       setBulkErr(e instanceof Error ? e.message : t("error_generic"));
@@ -277,7 +279,6 @@ export default function CalendarPage() {
 
   async function clearOverrides() {
     setBulkErr(null);
-    setBulkSuccess(null);
     if (selected.size === 0) return;
     setBulkSaving(true);
     try {
@@ -286,7 +287,7 @@ export default function CalendarPage() {
         await Availability.remove(activeHotel.id, rtID, date);
       }
       clearSelection();
-      setBulkSuccess(t("bulk_cleared"));
+      notifySuccess(t("bulk_cleared"));
       await reload();
     } catch (e) {
       setBulkErr(e instanceof Error ? e.message : t("error_generic"));
@@ -301,41 +302,49 @@ export default function CalendarPage() {
         title={t("calendar_title")}
         description={activeHotel.name}
         actions={
-          <>
-            <Button variant="secondary" onClick={() => shiftMonth(-1)}>
+          <Group gap="xs">
+            <Button variant="default" size="sm" onClick={() => shiftMonth(-1)}>
               ← {t("prev_month")}
             </Button>
-            <Button variant="secondary" onClick={() => shiftMonth(1)}>
+            <Button variant="default" size="sm" onClick={() => shiftMonth(1)}>
               {t("next_month")} →
             </Button>
             <Button
-              variant={bulkMode ? "primary" : "secondary"}
+              variant={bulkMode ? "filled" : "default"}
+              color={bulkMode ? "dark" : undefined}
+              size="sm"
               onClick={toggleBulkMode}
             >
               {bulkMode ? t("exit_bulk_edit") : t("bulk_edit")}
             </Button>
-          </>
+          </Group>
         }
       />
 
-      <p className="mb-3 text-sm text-neutral-600">
+      <Text size="sm" c="dimmed" mb="sm">
         {new Date(Date.UTC(now.year, now.monthIndex, 1)).toLocaleDateString("en-GB", {
           month: "long",
           year: "numeric",
         })}
-      </p>
+      </Text>
 
       <ErrorBanner message={error} />
       {bulkMode && (
-        <p className="mb-3 text-xs text-neutral-500">{t("bulk_hint")}</p>
+        <Text size="xs" c="dimmed" mb="sm">
+          {t("bulk_hint")}
+        </Text>
       )}
 
       {loading ? (
-        <p className="text-sm text-neutral-500">{t("loading")}</p>
+        <Center py="xl">
+          <Loader size="sm" />
+        </Center>
       ) : roomTypes.length === 0 ? (
         <EmptyState message={t("no_data")} />
       ) : (
-        <div className={`overflow-x-auto rounded-lg border border-neutral-200 bg-white ${bulkMode ? "pb-40" : ""}`}>
+        <div
+          className={`overflow-x-auto rounded-lg border border-neutral-200 bg-white ${bulkMode ? "pb-40" : ""}`}
+        >
           <table className="min-w-full border-collapse text-xs">
             <thead>
               <tr className="bg-neutral-50">
@@ -415,8 +424,6 @@ export default function CalendarPage() {
         </div>
       )}
 
-      <SuccessBanner message={bulkSuccess} />
-
       {bulkMode && selected.size > 0 && (
         <BulkEditPanel
           count={selected.size}
@@ -436,11 +443,10 @@ export default function CalendarPage() {
       )}
 
       <WalkInModal
-        open={!!modalCell}
+        cell={modalCell}
         onClose={() => setModalCell(null)}
         hotelID={activeHotel.id}
         baseCurrency={activeHotel.base_currency}
-        cell={modalCell}
         onCreated={async () => {
           setModalCell(null);
           const b = await Bookings.list(activeHotel.id, { limit: 500 });
@@ -481,113 +487,140 @@ function BulkEditPanel({
   onSave: () => void;
 }) {
   return (
-    <div className="fixed inset-x-0 bottom-0 z-30 border-t border-neutral-200 bg-white px-4 py-3 shadow-lg">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-end gap-3">
-        <div className="text-sm font-medium text-neutral-700">
-          {count} {t("bulk_selected")}
-        </div>
-        <Field label={t("bulk_set_inventory")}>
+    <Paper
+      withBorder
+      shadow="lg"
+      pos="fixed"
+      bottom={0}
+      left={0}
+      right={0}
+      style={{ zIndex: 30 }}
+      p="md"
+      bg="white"
+    >
+      <Group justify="space-between" align="end" wrap="wrap" gap="md" maw={1200} mx="auto">
+        <Group gap="md" align="end" wrap="wrap">
+          <Text size="sm" fw={500}>
+            {count} {t("bulk_selected")}
+          </Text>
           <TextInput
+            label={t("bulk_set_inventory")}
             type="number"
             min={0}
             value={inv}
-            onChange={(e) => onInvChange(e.target.value)}
-            className="w-28"
+            onChange={(e) => onInvChange(e.currentTarget.value)}
+            w={120}
           />
-        </Field>
-        <Field label={`${t("bulk_set_rate")} (${baseCurrency})`}>
           <TextInput
+            label={`${t("bulk_set_rate")} (${baseCurrency})`}
             value={rate}
-            onChange={(e) => onRateChange(e.target.value)}
+            onChange={(e) => onRateChange(e.currentTarget.value)}
             placeholder="1500.00"
-            className="w-32"
+            w={140}
           />
-        </Field>
-        <label className="inline-flex items-center gap-1 text-sm">
-          <input
-            type="checkbox"
+          <Checkbox
+            label={t("bulk_block_sales")}
             checked={blocked}
-            onChange={(e) => onBlockedChange(e.target.checked)}
+            onChange={(e) => onBlockedChange(e.currentTarget.checked)}
+            mb={6}
           />
-          {t("bulk_block_sales")}
-        </label>
-        <div className="ml-auto flex gap-2">
-          <Button variant="ghost" onClick={onClearSelection} disabled={saving}>
+        </Group>
+        <Group gap="xs">
+          <Button
+            variant="subtle"
+            color="gray"
+            onClick={onClearSelection}
+            disabled={saving}
+          >
             {t("bulk_clear_selection")}
           </Button>
-          <Button variant="secondary" onClick={onClear} loading={saving}>
+          <Button variant="default" onClick={onClear} loading={saving}>
             {t("bulk_clear_overrides")}
           </Button>
-          <Button onClick={onSave} loading={saving}>
+          <Button color="dark" onClick={onSave} loading={saving}>
             {t("bulk_save_overrides")}
           </Button>
-        </div>
-      </div>
+        </Group>
+      </Group>
       {err && (
-        <div className="mx-auto mt-2 max-w-6xl">
+        <div style={{ maxWidth: 1200, margin: "8px auto 0" }}>
           <ErrorBanner message={err} />
         </div>
       )}
-    </div>
+    </Paper>
   );
 }
 
 function WalkInModal({
-  open,
+  cell,
   onClose,
   hotelID,
   baseCurrency,
-  cell,
   onCreated,
 }: {
-  open: boolean;
+  cell: { rt: RoomType; date: string } | null;
   onClose: () => void;
   hotelID: string;
   baseCurrency: string;
-  cell: { rt: RoomType; date: string } | null;
   onCreated: () => Promise<void>;
 }) {
-  const [guestName, setGuestName] = useState("");
-  const [guestEmail, setGuestEmail] = useState("");
-  const [guestPhone, setGuestPhone] = useState("");
-  const [nights, setNights] = useState(1);
-  const [rooms, setRooms] = useState(1);
+  const opened = !!cell;
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  const form = useForm({
+    initialValues: {
+      guestName: "",
+      guestEmail: "",
+      guestPhone: "",
+      nights: 1,
+      rooms: 1,
+    },
+    validate: {
+      guestName: (v) => (v.trim() ? null : t("required_field")),
+      guestEmail: (v) =>
+        /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v) ? null : t("invalid_email"),
+    },
+  });
+
   useEffect(() => {
-    if (open) {
-      setGuestName("");
-      setGuestEmail("");
-      setGuestPhone("");
-      setNights(1);
-      setRooms(1);
+    if (opened) {
+      form.reset();
       setErr(null);
     }
-  }, [open, cell?.date, cell?.rt.id]);
+    // form.reset only depends on form itself; safe to omit from deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [opened, cell?.date, cell?.rt.id]);
 
-  if (!cell) return null;
+  if (!cell) {
+    return (
+      <Modal opened={false} onClose={onClose} title={t("walk_in_booking")}>
+        <div />
+      </Modal>
+    );
+  }
 
-  async function submit(e: React.FormEvent) {
-    e.preventDefault();
+  async function submit(values: typeof form.values) {
     if (!cell) return;
     setLoading(true);
     setErr(null);
     try {
-      const checkOut = addDaysISO(cell.date, nights);
-      const subtotal = rateToCents(cell.rt.base_rate) * nights * rooms;
+      const checkOut = addDaysISO(cell.date, values.nights);
+      const subtotal =
+        rateToCents(cell.rt.base_rate) * values.nights * values.rooms;
       await Bookings.create(hotelID, {
         room_type_id: cell.rt.id,
-        room_count: rooms,
+        room_count: values.rooms,
         check_in_date: cell.date,
         check_out_date: checkOut,
-        guest_email: guestEmail,
-        guest_name: guestName,
-        guest_phone: guestPhone || undefined,
+        guest_email: values.guestEmail,
+        guest_name: values.guestName,
+        guest_phone: values.guestPhone || undefined,
         currency: cell.rt.base_currency || baseCurrency,
         room_subtotal_cents: subtotal,
         total_cents: subtotal,
       });
+      notifySuccess(`${t("walk_in_booking")} ✓`);
       await onCreated();
     } catch (e) {
       setErr(e instanceof Error ? e.message : t("error_generic"));
@@ -596,60 +629,65 @@ function WalkInModal({
     }
   }
 
+  const roomOptions = Array.from(
+    { length: cell.rt.total_inventory || 1 },
+    (_, i) => String(i + 1)
+  );
+
   return (
-    <Modal open={open} onClose={onClose} title={t("walk_in_booking")}>
-      <form onSubmit={submit} className="space-y-3">
-        <p className="text-xs text-neutral-500">
-          {cell.rt.name} • {cell.date}
-        </p>
-        <Field label={t("guest_name")}>
-          <TextInput required value={guestName} onChange={(e) => setGuestName(e.target.value)} />
-        </Field>
-        <Field label={t("guest_email")}>
+    <Modal
+      opened={opened}
+      onClose={onClose}
+      title={t("walk_in_booking")}
+      centered
+      radius="md"
+    >
+      <form onSubmit={form.onSubmit(submit)}>
+        <Stack gap="sm">
+          <Text size="xs" c="dimmed">
+            {cell.rt.name} • {cell.date}
+          </Text>
           <TextInput
+            label={t("guest_name")}
+            required
+            {...form.getInputProps("guestName")}
+          />
+          <TextInput
+            label={t("guest_email")}
             type="email"
             required
-            value={guestEmail}
-            onChange={(e) => setGuestEmail(e.target.value)}
+            {...form.getInputProps("guestEmail")}
           />
-        </Field>
-        <Field label={t("guest_phone")}>
-          <TextInput value={guestPhone} onChange={(e) => setGuestPhone(e.target.value)} />
-        </Field>
-        <div className="grid grid-cols-2 gap-3">
-          <Field label={t("nights")}>
-            <TextInput
-              type="number"
+          <TextInput
+            label={t("guest_phone")}
+            {...form.getInputProps("guestPhone")}
+          />
+          <Group grow>
+            <NumberInput
+              label={t("nights")}
               min={1}
               required
-              value={nights}
-              onChange={(e) => setNights(Math.max(1, parseInt(e.target.value || "1", 10)))}
+              {...form.getInputProps("nights")}
             />
-          </Field>
-          <Field label="Rooms">
-            <Select
-              value={rooms}
-              onChange={(e) => setRooms(parseInt(e.target.value, 10))}
-            >
-              {Array.from({ length: cell.rt.total_inventory || 1 }, (_, i) => i + 1).map(
-                (n) => (
-                  <option key={n} value={n}>
-                    {n}
-                  </option>
-                )
-              )}
-            </Select>
-          </Field>
-        </div>
-        <ErrorBanner message={err} />
-        <div className="flex justify-end gap-2 pt-2">
-          <Button type="button" variant="secondary" onClick={onClose}>
-            {t("cancel")}
-          </Button>
-          <Button type="submit" loading={loading}>
-            {t("create")}
-          </Button>
-        </div>
+            <NativeSelect
+              label="Rooms"
+              data={roomOptions}
+              value={String(form.values.rooms)}
+              onChange={(e) =>
+                form.setFieldValue("rooms", parseInt(e.currentTarget.value, 10))
+              }
+            />
+          </Group>
+          <ErrorBanner message={err} />
+          <Group justify="flex-end" mt="sm">
+            <Button type="button" variant="default" onClick={onClose}>
+              {t("cancel")}
+            </Button>
+            <Button type="submit" loading={loading} color="dark">
+              {t("create")}
+            </Button>
+          </Group>
+        </Stack>
       </form>
     </Modal>
   );

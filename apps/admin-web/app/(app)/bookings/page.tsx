@@ -1,17 +1,27 @@
 "use client";
 
 import Link from "next/link";
+import type { Route } from "next";
 import { useEffect, useMemo, useState } from "react";
+
+import {
+  Anchor,
+  Center,
+  Group,
+  Loader,
+  NativeSelect,
+  ScrollArea,
+  Table,
+  Text,
+  TextInput,
+} from "@mantine/core";
 
 import { useShell } from "@/app/components/AppShell";
 import {
   EmptyState,
   ErrorBanner,
-  Field,
   PageHeader,
-  Select,
   StatusBadge,
-  TextInput,
 } from "@/app/components/ui";
 import { Bookings } from "@/app/lib/api";
 import { centsToDisplay } from "@/app/lib/money";
@@ -27,6 +37,11 @@ const STATUSES: BookingStatus[] = [
   "checked_out",
   "no_show",
   "completed",
+];
+
+const STATUS_OPTIONS = [
+  { value: "", label: t("all") },
+  ...STATUSES.map((s) => ({ value: s, label: s.replace(/_/g, " ") })),
 ];
 
 export default function BookingsListPage() {
@@ -59,71 +74,94 @@ export default function BookingsListPage() {
     <div>
       <PageHeader title={t("nav_bookings")} description={activeHotel.name} />
 
-      <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-4">
-        <Field label={t("filter_status")}>
-          <Select value={status} onChange={(e) => setStatus(e.target.value)}>
-            <option value="">{t("all")}</option>
-            {STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {s.replace(/_/g, " ")}
-              </option>
-            ))}
-          </Select>
-        </Field>
-        <Field label={t("check_in") + " ≥"}>
-          <TextInput type="date" value={from} onChange={(e) => setFrom(e.target.value)} />
-        </Field>
-        <Field label={t("check_out") + " ≤"}>
-          <TextInput type="date" value={to} onChange={(e) => setTo(e.target.value)} />
-        </Field>
-      </div>
+      <Group grow mb="md" wrap="wrap" align="end">
+        <NativeSelect
+          label={t("filter_status")}
+          data={STATUS_OPTIONS}
+          value={status}
+          onChange={(e) => setStatus(e.currentTarget.value)}
+        />
+        <TextInput
+          label={t("check_in") + " ≥"}
+          type="date"
+          value={from}
+          onChange={(e) => setFrom(e.currentTarget.value)}
+        />
+        <TextInput
+          label={t("check_out") + " ≤"}
+          type="date"
+          value={to}
+          onChange={(e) => setTo(e.currentTarget.value)}
+        />
+      </Group>
 
       <ErrorBanner message={error} />
 
       {loading ? (
-        <p className="text-sm text-neutral-500">{t("loading")}</p>
+        <Center py="xl">
+          <Group gap="sm">
+            <Loader size="sm" />
+            <Text size="sm" c="dimmed">
+              {t("loading")}
+            </Text>
+          </Group>
+        </Center>
       ) : filtered.length === 0 ? (
         <EmptyState message={t("no_data")} />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
-          <table className="w-full min-w-[800px] text-sm">
-            <thead>
-              <tr className="border-b border-neutral-200 bg-neutral-50 text-left text-xs uppercase tracking-wide text-neutral-500">
-                <th className="px-4 py-2.5">{t("booking_reference")}</th>
-                <th>{t("guest_name")}</th>
-                <th>{t("check_in")}</th>
-                <th>{t("check_out")}</th>
-                <th>{t("status")}</th>
-                <th>{t("source")}</th>
-                <th className="px-4 text-right">{t("total")}</th>
-              </tr>
-            </thead>
-            <tbody>
+        <ScrollArea>
+          <Table
+            highlightOnHover
+            striped="even"
+            withTableBorder
+            withRowBorders
+            verticalSpacing="sm"
+            miw={800}
+          >
+            <Table.Thead>
+              <Table.Tr>
+                <Table.Th>{t("booking_reference")}</Table.Th>
+                <Table.Th>{t("guest_name")}</Table.Th>
+                <Table.Th>{t("check_in")}</Table.Th>
+                <Table.Th>{t("check_out")}</Table.Th>
+                <Table.Th>{t("status")}</Table.Th>
+                <Table.Th>{t("source")}</Table.Th>
+                <Table.Th ta="right">{t("total")}</Table.Th>
+              </Table.Tr>
+            </Table.Thead>
+            <Table.Tbody>
               {filtered.map((b) => (
-                <tr key={b.id} className="border-b border-neutral-100 last:border-0 hover:bg-neutral-50">
-                  <td className="px-4 py-2.5">
-                    <Link
-                      href={`/bookings/${b.id}`}
-                      className="font-mono text-xs text-neutral-900 underline"
+                <Table.Tr key={b.id}>
+                  <Table.Td>
+                    <Anchor
+                      component={Link}
+                      href={`/bookings/${b.id}` as Route}
+                      ff="monospace"
+                      size="xs"
+                      c="dark"
                     >
                       {b.reference}
-                    </Link>
-                  </td>
-                  <td>{b.guest_name}</td>
-                  <td>{b.check_in_date}</td>
-                  <td>{b.check_out_date}</td>
-                  <td>
+                    </Anchor>
+                  </Table.Td>
+                  <Table.Td>{b.guest_name}</Table.Td>
+                  <Table.Td>{b.check_in_date}</Table.Td>
+                  <Table.Td>{b.check_out_date}</Table.Td>
+                  <Table.Td>
                     <StatusBadge value={b.status} />
-                  </td>
-                  <td className="text-xs text-neutral-600">{b.source}</td>
-                  <td className="px-4 text-right font-mono">
+                  </Table.Td>
+                  <Table.Td>
+                    <Text size="xs" c="dimmed">
+                      {b.source}
+                    </Text>
+                  </Table.Td>
+                  <Table.Td ta="right" ff="monospace">
                     {centsToDisplay(b.total_cents, b.currency)}
-                  </td>
-                </tr>
+                  </Table.Td>
+                </Table.Tr>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </Table.Tbody>
+          </Table>
+        </ScrollArea>
       )}
     </div>
   );

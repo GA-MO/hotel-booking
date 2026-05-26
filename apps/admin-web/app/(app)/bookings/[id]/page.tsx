@@ -4,10 +4,26 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 
-import { useShell } from "@/app/components/AppShell";
 import {
+  Anchor,
   Button,
   Card,
+  Center,
+  Divider,
+  Group,
+  Loader,
+  Modal,
+  SimpleGrid,
+  Stack,
+  Text,
+  Textarea,
+  Timeline,
+  Title,
+} from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
+
+import { useShell } from "@/app/components/AppShell";
+import {
   ErrorBanner,
   PageHeader,
   StatusBadge,
@@ -15,6 +31,7 @@ import {
 import { Bookings, ApiClientError } from "@/app/lib/api";
 import { formatDateTime } from "@/app/lib/dates";
 import { centsToDisplay } from "@/app/lib/money";
+import { notifySuccess } from "@/app/lib/notify";
 import { t, type Dict } from "@/app/i18n";
 import type { Booking, BookingEvent } from "@/app/lib/types";
 
@@ -31,6 +48,14 @@ const eventLabelKey: Record<string, string> = {
   payment_claimed: "booking_event_payment_claimed",
 };
 
+const actionLabelKey: Record<ActionKey, keyof Dict> = {
+  confirm: "action_confirm",
+  checkIn: "action_check_in",
+  checkOut: "action_check_out",
+  noShow: "action_no_show",
+  cancel: "action_cancel",
+};
+
 export default function BookingDetailPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
@@ -40,6 +65,8 @@ export default function BookingDetailPage() {
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<ActionKey | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [cancelOpened, cancelModal] = useDisclosure(false);
+  const [cancelReason, setCancelReason] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -66,7 +93,7 @@ export default function BookingDetailPage() {
     void load();
   }, [load]);
 
-  async function doAction(key: ActionKey) {
+  async function runAction(key: ActionKey, reason?: string) {
     if (!booking) return;
     setActionLoading(key);
     setError(null);
@@ -85,18 +112,21 @@ export default function BookingDetailPage() {
         case "noShow":
           updated = await Bookings.noShow(activeHotel.id, booking.id);
           break;
-        case "cancel": {
-          const reason = window.prompt("Reason?") || "";
-          updated = await Bookings.cancel(activeHotel.id, booking.id, reason);
+        case "cancel":
+          updated = await Bookings.cancel(
+            activeHotel.id,
+            booking.id,
+            reason || ""
+          );
           break;
-        }
       }
       setBooking(updated);
+      notifySuccess(t(actionLabelKey[key]) + " ✓");
       try {
         const refreshed = await Bookings.listEvents(activeHotel.id, booking.id);
         setEvents(refreshed.events);
       } catch {
-        // events refresh is best-effort; the action itself already succeeded
+        // events refresh is best-effort
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
@@ -106,7 +136,16 @@ export default function BookingDetailPage() {
   }
 
   if (loading) {
-    return <p className="text-sm text-neutral-500">{t("loading")}</p>;
+    return (
+      <Center py="xl">
+        <Group gap="sm">
+          <Loader size="sm" />
+          <Text size="sm" c="dimmed">
+            {t("loading")}
+          </Text>
+        </Group>
+      </Center>
+    );
   }
   if (!booking) {
     return <ErrorBanner message={error || "Not found"} />;
@@ -118,9 +157,8 @@ export default function BookingDetailPage() {
   const canCancel = ["pending_payment", "confirmed"].includes(booking.status);
   const canNoShow = booking.status === "confirmed";
 
-  // Synthesized fallback (from booking row timestamps) only kicks in when the
-  // backend's audit endpoint is unreachable or empty — keeps the panel useful
-  // for hotels that wired the UI before the migration applied.
+  // Synthesized fallback (from booking row timestamps) only when the audit
+  // endpoint returns no rows — keeps the timeline useful for pre-migration data.
   const fallbackTimeline = [
     { label: "created", at: booking.created_at },
     { label: "confirmed", at: booking.confirmed_at },
@@ -135,21 +173,24 @@ export default function BookingDetailPage() {
         title={booking.reference}
         description={`${booking.guest_name} — ${activeHotel.name}`}
         actions={
-          <Link
+          <Button
+            component={Link}
             href="/bookings"
-            className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm hover:bg-neutral-100"
+            variant="default"
+            size="sm"
           >
             ← {t("nav_bookings")}
-          </Link>
+          </Button>
         }
       />
 
       <ErrorBanner message={error} />
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <Group mb="md" wrap="wrap">
         {canConfirm && (
           <Button
-            onClick={() => doAction("confirm")}
+            color="dark"
+            onClick={() => runAction("confirm")}
             loading={actionLoading === "confirm"}
           >
             {t("action_confirm")}
@@ -157,7 +198,8 @@ export default function BookingDetailPage() {
         )}
         {canCheckIn && (
           <Button
-            onClick={() => doAction("checkIn")}
+            color="dark"
+            onClick={() => runAction("checkIn")}
             loading={actionLoading === "checkIn"}
           >
             {t("action_check_in")}
@@ -165,7 +207,8 @@ export default function BookingDetailPage() {
         )}
         {canCheckOut && (
           <Button
-            onClick={() => doAction("checkOut")}
+            color="dark"
+            onClick={() => runAction("checkOut")}
             loading={actionLoading === "checkOut"}
           >
             {t("action_check_out")}
@@ -173,8 +216,8 @@ export default function BookingDetailPage() {
         )}
         {canNoShow && (
           <Button
-            variant="secondary"
-            onClick={() => doAction("noShow")}
+            variant="default"
+            onClick={() => runAction("noShow")}
             loading={actionLoading === "noShow"}
           >
             {t("action_no_show")}
@@ -182,117 +225,194 @@ export default function BookingDetailPage() {
         )}
         {canCancel && (
           <Button
-            variant="danger"
-            onClick={() => doAction("cancel")}
+            color="red"
+            variant="light"
+            onClick={() => {
+              setCancelReason("");
+              cancelModal.open();
+            }}
             loading={actionLoading === "cancel"}
           >
             {t("action_cancel")}
           </Button>
         )}
-      </div>
+      </Group>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title={t("status")}>
-          <div className="flex items-center gap-2">
+      <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md">
+        <Card withBorder radius="md" padding="lg">
+          <Title order={3} size="h5" mb="sm">
+            {t("status")}
+          </Title>
+          <Group gap="xs">
             <StatusBadge value={booking.status} />
             <StatusBadge value={booking.payment_status} />
-          </div>
-          <dl className="mt-4 grid grid-cols-2 gap-y-2 text-sm">
-            <dt className="text-neutral-500">{t("source")}</dt>
-            <dd>{booking.source}</dd>
-            <dt className="text-neutral-500">{t("check_in")}</dt>
-            <dd>{booking.check_in_date}</dd>
-            <dt className="text-neutral-500">{t("check_out")}</dt>
-            <dd>{booking.check_out_date}</dd>
-            <dt className="text-neutral-500">{t("nights")}</dt>
-            <dd>{booking.nights}</dd>
-            <dt className="text-neutral-500">Rooms</dt>
-            <dd>{booking.room_count}</dd>
-          </dl>
+          </Group>
+          <Divider my="sm" />
+          <DefList
+            rows={[
+              [t("source"), booking.source],
+              [t("check_in"), booking.check_in_date],
+              [t("check_out"), booking.check_out_date],
+              [t("nights"), String(booking.nights)],
+              ["Rooms", String(booking.room_count)],
+            ]}
+          />
         </Card>
 
-        <Card title="Guest">
-          <dl className="grid grid-cols-2 gap-y-2 text-sm">
-            <dt className="text-neutral-500">{t("guest_name")}</dt>
-            <dd>{booking.guest_name}</dd>
-            <dt className="text-neutral-500">{t("guest_email")}</dt>
-            <dd className="break-all">{booking.guest_email}</dd>
-            <dt className="text-neutral-500">{t("guest_phone")}</dt>
-            <dd>{booking.guest_phone || "—"}</dd>
-            <dt className="text-neutral-500">{t("country")}</dt>
-            <dd>{booking.guest_country || "—"}</dd>
-          </dl>
+        <Card withBorder radius="md" padding="lg">
+          <Title order={3} size="h5" mb="sm">
+            Guest
+          </Title>
+          <DefList
+            rows={[
+              [t("guest_name"), booking.guest_name],
+              [t("guest_email"), booking.guest_email],
+              [t("guest_phone"), booking.guest_phone || "—"],
+              [t("country"), booking.guest_country || "—"],
+            ]}
+          />
           {booking.special_request && (
-            <div className="mt-4">
-              <p className="text-xs uppercase tracking-wide text-neutral-500">
+            <>
+              <Divider my="sm" />
+              <Text size="xs" tt="uppercase" c="dimmed" mb={4}>
                 Special request
-              </p>
-              <p className="mt-1 text-sm">{booking.special_request}</p>
-            </div>
+              </Text>
+              <Text size="sm">{booking.special_request}</Text>
+            </>
           )}
         </Card>
 
-        <Card title="Money" className="lg:col-span-2">
-          <dl className="grid grid-cols-2 gap-y-2 text-sm sm:grid-cols-4">
-            <dt className="text-neutral-500">Room</dt>
-            <dd className="font-mono">
-              {centsToDisplay(booking.room_subtotal_cents, booking.currency)}
-            </dd>
-            <dt className="text-neutral-500">Taxes</dt>
-            <dd className="font-mono">
-              {centsToDisplay(booking.taxes_cents, booking.currency)}
-            </dd>
-            <dt className="text-neutral-500">Fees</dt>
-            <dd className="font-mono">
-              {centsToDisplay(booking.fees_cents, booking.currency)}
-            </dd>
-            <dt className="text-neutral-500">Discounts</dt>
-            <dd className="font-mono">
-              −{centsToDisplay(booking.discounts_cents, booking.currency)}
-            </dd>
-            <dt className="font-medium text-neutral-700">{t("total")}</dt>
-            <dd className="font-mono font-semibold">
+        <Card withBorder radius="md" padding="lg" style={{ gridColumn: "1 / -1" }}>
+          <Title order={3} size="h5" mb="sm">
+            Money
+          </Title>
+          <SimpleGrid cols={{ base: 2, sm: 4 }} spacing="sm">
+            <Money label="Room" value={booking.room_subtotal_cents} currency={booking.currency} />
+            <Money label="Taxes" value={booking.taxes_cents} currency={booking.currency} />
+            <Money label="Fees" value={booking.fees_cents} currency={booking.currency} />
+            <Money label="Discounts" value={-booking.discounts_cents} currency={booking.currency} />
+          </SimpleGrid>
+          <Divider my="sm" />
+          <Group justify="space-between">
+            <Text fw={500}>{t("total")}</Text>
+            <Text fw={600} ff="monospace">
               {centsToDisplay(booking.total_cents, booking.currency)}
-            </dd>
-          </dl>
+            </Text>
+          </Group>
         </Card>
 
-        <Card title={t("booking_timeline")} className="lg:col-span-2">
+        <Card withBorder radius="md" padding="lg" style={{ gridColumn: "1 / -1" }}>
+          <Title order={3} size="h5" mb="md">
+            {t("booking_timeline")}
+          </Title>
           {events.length > 0 ? (
-            <ol className="space-y-2">
+            <Timeline bulletSize={20} lineWidth={2} active={events.length}>
               {events.map((e) => {
                 const labelKey = eventLabelKey[e.event_type];
                 const label = labelKey ? t(labelKey as keyof Dict) : e.event_type;
                 return (
-                  <li key={e.id} className="flex flex-wrap items-baseline gap-3 text-sm">
-                    <span className="w-32 text-neutral-700">{label}</span>
-                    <span className="text-neutral-500">
+                  <Timeline.Item key={e.id} title={label}>
+                    <Text size="xs" c="dimmed">
                       {formatDateTime(e.created_at, activeHotel.timezone)}
-                    </span>
-                    <span className="text-xs text-neutral-400">
-                      ({t(("actor_" + e.actor_type) as keyof Dict)})
-                    </span>
-                  </li>
+                      {" · "}
+                      {t(("actor_" + e.actor_type) as keyof Dict)}
+                    </Text>
+                  </Timeline.Item>
                 );
               })}
-            </ol>
+            </Timeline>
           ) : (
-            <ol className="space-y-2">
+            <Stack gap="xs">
               {fallbackTimeline.map((e) => (
-                <li key={e.label} className="flex items-baseline gap-3 text-sm">
-                  <span className="w-28 capitalize text-neutral-500">{e.label}</span>
-                  <span>{formatDateTime(e.at, activeHotel.timezone)}</span>
-                </li>
+                <Group key={e.label} gap="md" align="baseline">
+                  <Text size="sm" c="dimmed" tt="capitalize" w={120}>
+                    {e.label}
+                  </Text>
+                  <Text size="sm">{formatDateTime(e.at, activeHotel.timezone)}</Text>
+                </Group>
               ))}
-            </ol>
+            </Stack>
           )}
           {booking.cancellation_reason && (
-            <p className="mt-3 text-sm text-neutral-600">
+            <Text size="sm" c="dimmed" mt="sm">
               Reason: {booking.cancellation_reason}
-            </p>
+            </Text>
           )}
         </Card>
-      </div>
+      </SimpleGrid>
+
+      <Modal
+        opened={cancelOpened}
+        onClose={cancelModal.close}
+        title={t("action_cancel")}
+        centered
+        radius="md"
+      >
+        <Stack gap="md">
+          <Textarea
+            label="Reason"
+            placeholder="(optional)"
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.currentTarget.value)}
+            rows={3}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={cancelModal.close}>
+              {t("back")}
+            </Button>
+            <Button
+              color="red"
+              loading={actionLoading === "cancel"}
+              onClick={async () => {
+                cancelModal.close();
+                await runAction("cancel", cancelReason);
+              }}
+            >
+              {t("action_cancel")}
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </div>
+  );
+}
+
+function DefList({ rows }: { rows: Array<[string, string]> }) {
+  return (
+    <Stack gap={6}>
+      {rows.map(([k, v]) => (
+        <Group key={k} justify="space-between" align="baseline">
+          <Text size="sm" c="dimmed">
+            {k}
+          </Text>
+          <Text size="sm" ta="right" style={{ wordBreak: "break-word" }}>
+            {v}
+          </Text>
+        </Group>
+      ))}
+    </Stack>
+  );
+}
+
+function Money({
+  label,
+  value,
+  currency,
+}: {
+  label: string;
+  value: number;
+  currency: string;
+}) {
+  const negative = value < 0;
+  return (
+    <Stack gap={2}>
+      <Text size="xs" c="dimmed">
+        {label}
+      </Text>
+      <Text size="sm" ff="monospace">
+        {negative ? "−" : ""}
+        {centsToDisplay(Math.abs(value), currency)}
+      </Text>
+    </Stack>
   );
 }

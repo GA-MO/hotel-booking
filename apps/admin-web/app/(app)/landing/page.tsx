@@ -2,20 +2,30 @@
 
 import { useEffect, useState } from "react";
 
-import { useShell } from "@/app/components/AppShell";
-import SingleImageUpload from "@/app/components/SingleImageUpload";
 import {
+  ActionIcon,
   Button,
   Card,
-  ErrorBanner,
-  Field,
-  PageHeader,
-  Select,
-  StatusBadge,
-  TextArea,
+  Center,
+  Checkbox,
+  ColorInput,
+  Group,
+  Loader,
+  NativeSelect,
+  Paper,
+  SimpleGrid,
+  Stack,
+  Text,
+  Textarea,
   TextInput,
-} from "@/app/components/ui";
+  Title,
+} from "@mantine/core";
+
+import { useShell } from "@/app/components/AppShell";
+import SingleImageUpload from "@/app/components/SingleImageUpload";
+import { ErrorBanner, PageHeader, StatusBadge } from "@/app/components/ui";
 import { Landing, ApiClientError } from "@/app/lib/api";
+import { notifySuccess } from "@/app/lib/notify";
 import { t } from "@/app/i18n";
 import type {
   Branding,
@@ -29,7 +39,14 @@ import type {
 const LOCALES = ["th", "en"] as const;
 type Locale = (typeof LOCALES)[number];
 
-const DEFAULT_SECTION_TYPES = ["hero", "gallery", "about", "rooms", "amenities", "location"];
+const DEFAULT_SECTION_TYPES = [
+  "hero",
+  "gallery",
+  "about",
+  "rooms",
+  "amenities",
+  "location",
+];
 
 type DraftForm = {
   branding: Branding;
@@ -40,14 +57,32 @@ type DraftForm = {
 
 function emptyDraft(): DraftForm {
   return {
-    branding: { primary_color: "#0f172a", accent_color: "#f59e0b", font_family: "Inter" },
+    branding: {
+      primary_color: "#0f172a",
+      accent_color: "#f59e0b",
+      font_family: "Inter",
+    },
     seo: {},
     tracking: {},
     sections: [
-      { type: "hero", enabled: true, order: 0, content: { headline: "", subheadline: "" } },
+      {
+        type: "hero",
+        enabled: true,
+        order: 0,
+        content: { headline: "", subheadline: "" },
+      },
     ],
   };
 }
+
+const TRACKING_FIELDS: Array<[keyof Tracking, string]> = [
+  ["facebook_pixel_id", "Facebook Pixel"],
+  ["google_analytics_id", "Google Analytics"],
+  ["google_ads_conversion_id", "Google Ads Conversion"],
+  ["gtm_id", "GTM"],
+  ["line_tag_id", "LINE Tag"],
+  ["tiktok_pixel_id", "TikTok Pixel"],
+];
 
 export default function LandingPageEditor() {
   const { activeHotel } = useShell();
@@ -98,6 +133,7 @@ export default function LandingPageEditor() {
       };
       const p = await Landing.upsert(activeHotel.id, locale, req);
       setPage(p);
+      notifySuccess(t("saved"));
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
     } finally {
@@ -113,6 +149,9 @@ export default function LandingPageEditor() {
       const fn = page.status === "published" ? Landing.unpublish : Landing.publish;
       const p = await fn(activeHotel.id, locale);
       setPage(p);
+      notifySuccess(
+        p.status === "published" ? t("publish") + " ✓" : t("unpublish") + " ✓"
+      );
     } catch (e) {
       setError(e instanceof Error ? e.message : t("error_generic"));
     } finally {
@@ -150,37 +189,41 @@ export default function LandingPageEditor() {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div style={{ maxWidth: 1024 }}>
       <PageHeader
         title={t("nav_landing")}
         description={activeHotel.name}
         actions={
-          <>
-            <Select
+          <Group gap="xs">
+            <NativeSelect
               value={locale}
-              onChange={(e) => setLocale(e.target.value as Locale)}
-              className="w-28"
-            >
-              {LOCALES.map((l) => (
-                <option key={l} value={l}>
-                  {l.toUpperCase()}
-                </option>
-              ))}
-            </Select>
+              onChange={(e) => setLocale(e.currentTarget.value as Locale)}
+              data={LOCALES.map((l) => ({ value: l, label: l.toUpperCase() }))}
+              w={88}
+              size="sm"
+            />
             {page && <StatusBadge value={page.status} />}
-          </>
+          </Group>
         }
       />
 
       <ErrorBanner message={error} />
 
       {loading ? (
-        <p className="text-sm text-neutral-500">{t("loading")}</p>
+        <Center py="xl">
+          <Loader size="sm" />
+        </Center>
       ) : (
-        <>
-          <Card title="Branding">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <Field label={t("logo_image")}>
+        <Stack gap="md">
+          <Card withBorder radius="md" padding="lg">
+            <Title order={3} size="h5" mb="sm">
+              Branding
+            </Title>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+              <Stack gap={4}>
+                <Text size="sm" fw={500} c="gray.7">
+                  {t("logo_image")}
+                </Text>
                 <SingleImageUpload
                   hotelID={activeHotel.id}
                   kind="hotel_photo"
@@ -198,131 +241,167 @@ export default function LandingPageEditor() {
                     })
                   }
                 />
-              </Field>
-              <Field label="Font family">
-                <TextInput
-                  value={draft.branding.font_family || ""}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      branding: { ...draft.branding, font_family: e.target.value },
-                    })
-                  }
-                />
-              </Field>
-              <Field label="Primary color (#hex)">
-                <TextInput
-                  value={draft.branding.primary_color || ""}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      branding: { ...draft.branding, primary_color: e.target.value },
-                    })
-                  }
-                />
-              </Field>
-              <Field label="Accent color (#hex)">
-                <TextInput
-                  value={draft.branding.accent_color || ""}
-                  onChange={(e) =>
-                    setDraft({
-                      ...draft,
-                      branding: { ...draft.branding, accent_color: e.target.value },
-                    })
-                  }
-                />
-              </Field>
-            </div>
+              </Stack>
+              <TextInput
+                label="Font family"
+                value={draft.branding.font_family || ""}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    branding: {
+                      ...draft.branding,
+                      font_family: e.currentTarget.value,
+                    },
+                  })
+                }
+              />
+              <ColorInput
+                label="Primary color"
+                value={draft.branding.primary_color || ""}
+                onChange={(v) =>
+                  setDraft({
+                    ...draft,
+                    branding: { ...draft.branding, primary_color: v },
+                  })
+                }
+                format="hex"
+              />
+              <ColorInput
+                label="Accent color"
+                value={draft.branding.accent_color || ""}
+                onChange={(v) =>
+                  setDraft({
+                    ...draft,
+                    branding: { ...draft.branding, accent_color: v },
+                  })
+                }
+                format="hex"
+              />
+            </SimpleGrid>
           </Card>
 
-          <div className="h-4" />
-
-          <Card title="SEO">
-            <div className="grid gap-3">
-              <Field label={t("landing_title")}>
-                <TextInput
-                  value={draft.seo.title || ""}
-                  onChange={(e) =>
-                    setDraft({ ...draft, seo: { ...draft.seo, title: e.target.value } })
-                  }
-                />
-              </Field>
-              <Field label="Meta description">
-                <TextArea
-                  rows={2}
-                  value={draft.seo.description || ""}
-                  onChange={(e) =>
-                    setDraft({ ...draft, seo: { ...draft.seo, description: e.target.value } })
-                  }
-                />
-              </Field>
-              <Field label={t("og_image")}>
+          <Card withBorder radius="md" padding="lg">
+            <Title order={3} size="h5" mb="sm">
+              SEO
+            </Title>
+            <Stack gap="sm">
+              <TextInput
+                label={t("landing_title")}
+                value={draft.seo.title || ""}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    seo: { ...draft.seo, title: e.currentTarget.value },
+                  })
+                }
+              />
+              <Textarea
+                label="Meta description"
+                rows={2}
+                value={draft.seo.description || ""}
+                onChange={(e) =>
+                  setDraft({
+                    ...draft,
+                    seo: { ...draft.seo, description: e.currentTarget.value },
+                  })
+                }
+              />
+              <Stack gap={4}>
+                <Text size="sm" fw={500} c="gray.7">
+                  {t("og_image")}
+                </Text>
                 <SingleImageUpload
                   hotelID={activeHotel.id}
                   kind="hotel_photo"
                   value={draft.seo.og_image_url || ""}
                   onChange={(url) =>
-                    setDraft({ ...draft, seo: { ...draft.seo, og_image_url: url } })
+                    setDraft({
+                      ...draft,
+                      seo: { ...draft.seo, og_image_url: url },
+                    })
                   }
                   onRemove={() =>
-                    setDraft({ ...draft, seo: { ...draft.seo, og_image_url: "" } })
+                    setDraft({
+                      ...draft,
+                      seo: { ...draft.seo, og_image_url: "" },
+                    })
                   }
                 />
-              </Field>
-            </div>
+              </Stack>
+            </Stack>
           </Card>
 
-          <div className="h-4" />
-
-          <Card title="Sections" actions={<Button variant="secondary" onClick={addSection}>{t("add")}</Button>}>
-            <div className="space-y-3">
+          <Card withBorder radius="md" padding="lg">
+            <Group justify="space-between" mb="sm">
+              <Title order={3} size="h5">
+                Sections
+              </Title>
+              <Button variant="default" size="sm" onClick={addSection}>
+                {t("add")}
+              </Button>
+            </Group>
+            <Stack gap="sm">
               {draft.sections.map((s, idx) => (
-                <div
-                  key={idx}
-                  className="rounded-md border border-neutral-200 bg-neutral-50 p-3"
-                >
-                  <div className="mb-2 flex items-center gap-2">
-                    <Select
+                <Paper key={idx} withBorder radius="md" p="sm" bg="gray.0">
+                  <Group gap="xs" mb="xs" wrap="wrap">
+                    <NativeSelect
                       value={s.type}
                       onChange={(e) => {
                         const next = [...draft.sections];
-                        next[idx] = { ...s, type: e.target.value };
+                        next[idx] = { ...s, type: e.currentTarget.value };
                         setDraft({ ...draft, sections: next });
                       }}
-                      className="w-40"
-                    >
-                      {DEFAULT_SECTION_TYPES.map((typ) => (
-                        <option key={typ} value={typ}>
-                          {typ}
-                        </option>
-                      ))}
-                    </Select>
-                    <label className="ml-2 inline-flex items-center gap-1 text-xs">
-                      <input
-                        type="checkbox"
-                        checked={s.enabled}
-                        onChange={(e) => {
-                          const next = [...draft.sections];
-                          next[idx] = { ...s, enabled: e.target.checked };
-                          setDraft({ ...draft, sections: next });
-                        }}
-                      />
-                      Enabled
-                    </label>
-                    <div className="ml-auto flex gap-1">
-                      <Button variant="ghost" onClick={() => moveSection(idx, -1)}>↑</Button>
-                      <Button variant="ghost" onClick={() => moveSection(idx, 1)}>↓</Button>
-                      <Button variant="ghost" onClick={() => removeSection(idx)}>
-                        {t("remove")}
-                      </Button>
-                    </div>
-                  </div>
-                  <TextArea
+                      data={DEFAULT_SECTION_TYPES}
+                      w={160}
+                      size="xs"
+                    />
+                    <Checkbox
+                      label="Enabled"
+                      checked={s.enabled}
+                      onChange={(e) => {
+                        const next = [...draft.sections];
+                        next[idx] = { ...s, enabled: e.currentTarget.checked };
+                        setDraft({ ...draft, sections: next });
+                      }}
+                      size="xs"
+                    />
+                    <Group gap={4} ml="auto">
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        onClick={() => moveSection(idx, -1)}
+                        disabled={idx === 0}
+                        aria-label="Move up"
+                      >
+                        ↑
+                      </ActionIcon>
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        onClick={() => moveSection(idx, 1)}
+                        disabled={idx === draft.sections.length - 1}
+                        aria-label="Move down"
+                      >
+                        ↓
+                      </ActionIcon>
+                      <ActionIcon
+                        variant="subtle"
+                        color="red"
+                        onClick={() => removeSection(idx)}
+                        aria-label={t("remove")}
+                      >
+                        ✕
+                      </ActionIcon>
+                    </Group>
+                  </Group>
+                  <Textarea
                     rows={3}
+                    autosize
+                    minRows={3}
                     value={JSON.stringify(s.content || {}, null, 2)}
                     onChange={(e) => {
                       try {
-                        const parsed = JSON.parse(e.target.value || "{}");
+                        const parsed = JSON.parse(e.currentTarget.value || "{}");
                         const next = [...draft.sections];
                         next[idx] = { ...s, content: parsed };
                         setDraft({ ...draft, sections: next });
@@ -330,52 +409,52 @@ export default function LandingPageEditor() {
                         // ignore until parseable
                       }
                     }}
+                    styles={{ input: { fontFamily: "monospace", fontSize: 12 } }}
                   />
-                </div>
+                </Paper>
               ))}
-            </div>
+            </Stack>
           </Card>
 
-          <div className="h-4" />
-
-          <Card title="Tracking pixels">
-            <div className="grid gap-3 sm:grid-cols-2">
-              {(
-                [
-                  ["facebook_pixel_id", "Facebook Pixel"],
-                  ["google_analytics_id", "Google Analytics"],
-                  ["google_ads_conversion_id", "Google Ads Conversion"],
-                  ["gtm_id", "GTM"],
-                  ["line_tag_id", "LINE Tag"],
-                  ["tiktok_pixel_id", "TikTok Pixel"],
-                ] as Array<[keyof Tracking, string]>
-              ).map(([k, label]) => (
-                <Field key={k} label={label}>
-                  <TextInput
-                    value={(draft.tracking[k] as string) || ""}
-                    onChange={(e) =>
-                      setDraft({
-                        ...draft,
-                        tracking: { ...draft.tracking, [k]: e.target.value },
-                      })
-                    }
-                  />
-                </Field>
+          <Card withBorder radius="md" padding="lg">
+            <Title order={3} size="h5" mb="sm">
+              Tracking pixels
+            </Title>
+            <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">
+              {TRACKING_FIELDS.map(([k, label]) => (
+                <TextInput
+                  key={k}
+                  label={label}
+                  value={(draft.tracking[k] as string) || ""}
+                  onChange={(e) =>
+                    setDraft({
+                      ...draft,
+                      tracking: {
+                        ...draft.tracking,
+                        [k]: e.currentTarget.value,
+                      },
+                    })
+                  }
+                />
               ))}
-            </div>
+            </SimpleGrid>
           </Card>
 
-          <div className="mt-6 flex justify-end gap-2">
+          <Group justify="flex-end">
             {page && (
-              <Button variant="secondary" onClick={publishToggle} loading={saving}>
+              <Button
+                variant="default"
+                onClick={publishToggle}
+                loading={saving}
+              >
                 {page.status === "published" ? t("unpublish") : t("publish")}
               </Button>
             )}
-            <Button onClick={save} loading={saving}>
+            <Button onClick={save} loading={saving} color="dark">
               {t("save")}
             </Button>
-          </div>
-        </>
+          </Group>
+        </Stack>
       )}
     </div>
   );

@@ -2,19 +2,28 @@
 
 import { useEffect, useState } from "react";
 
-import { useShell } from "@/app/components/AppShell";
 import {
   Button,
   Card,
-  ErrorBanner,
-  PageHeader,
-  Select,
-  StatusBadge,
-} from "@/app/components/ui";
+  Center,
+  Divider,
+  Group,
+  Loader,
+  Modal,
+  NativeSelect,
+  Stack,
+  Text,
+  Textarea,
+  Title,
+} from "@mantine/core";
+import { useDisclosure } from "@mantine/hooks";
+
+import { useShell } from "@/app/components/AppShell";
+import { ErrorBanner, PageHeader, StatusBadge } from "@/app/components/ui";
 import { Subs } from "@/app/lib/api";
 import { centsToDisplay } from "@/app/lib/money";
-import { getLocale, setLocale, type Locale } from "@/app/i18n";
-import { t } from "@/app/i18n";
+import { notifySuccess } from "@/app/lib/notify";
+import { getLocale, setLocale, t, type Locale } from "@/app/i18n";
 import type { Subscription } from "@/app/lib/types";
 
 export default function SettingsPage() {
@@ -23,6 +32,9 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [locale, setLocaleState] = useState<Locale>("th");
+  const [cancelOpened, cancelModal] = useDisclosure(false);
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelling, setCancelling] = useState(false);
 
   useEffect(() => {
     setLocaleState(getLocale());
@@ -38,92 +50,168 @@ export default function SettingsPage() {
     window.location.reload();
   }
 
+  async function cancelSubscription() {
+    setCancelling(true);
+    try {
+      const updated = await Subs.cancel(cancelReason);
+      setSub(updated);
+      cancelModal.close();
+      notifySuccess("Subscription cancelled");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : t("error_generic"));
+    } finally {
+      setCancelling(false);
+    }
+  }
+
   return (
-    <div className="max-w-3xl">
+    <div style={{ maxWidth: 768 }}>
       <PageHeader title={t("nav_settings")} description={activeHotel.name} />
 
       <ErrorBanner message={error} />
 
-      <Card title="Language">
-        <Select
-          value={locale}
-          onChange={(e) => changeLocale(e.target.value as Locale)}
-          className="w-40"
-        >
-          <option value="th">ไทย</option>
-          <option value="en">English</option>
-        </Select>
-      </Card>
+      <Stack gap="md">
+        <Card withBorder radius="md" padding="lg">
+          <Title order={3} size="h5" mb="sm">
+            Language
+          </Title>
+          <NativeSelect
+            data={[
+              { value: "th", label: "ไทย" },
+              { value: "en", label: "English" },
+            ]}
+            value={locale}
+            onChange={(e) => changeLocale(e.currentTarget.value as Locale)}
+            w={160}
+          />
+        </Card>
 
-      <div className="h-4" />
+        <Card withBorder radius="md" padding="lg">
+          <Title order={3} size="h5" mb="sm">
+            {t("subscription_status")}
+          </Title>
+          {loading ? (
+            <Center py="md">
+              <Loader size="sm" />
+            </Center>
+          ) : sub ? (
+            <Stack gap="sm">
+              <Group gap="sm">
+                <StatusBadge value={sub.status} />
+                {sub.plan_code && (
+                  <Text size="sm" c="dimmed">
+                    {sub.plan_code}
+                  </Text>
+                )}
+              </Group>
 
-      <Card title={t("subscription_status")}>
-        {loading ? (
-          <p className="text-sm text-neutral-500">{t("loading")}</p>
-        ) : sub ? (
-          <>
-            <div className="flex items-center gap-2">
-              <StatusBadge value={sub.status} />
-              {sub.plan_code && <span className="text-sm">{sub.plan_code}</span>}
-            </div>
-            <dl className="mt-4 grid grid-cols-2 gap-y-2 text-sm">
-              {sub.trial_ends_at && (
-                <>
-                  <dt className="text-neutral-500">Trial ends</dt>
-                  <dd>{new Date(sub.trial_ends_at).toLocaleDateString()}</dd>
-                </>
+              <Divider />
+
+              <Stack gap={6}>
+                {sub.trial_ends_at && (
+                  <KeyValue
+                    label="Trial ends"
+                    value={new Date(sub.trial_ends_at).toLocaleDateString()}
+                  />
+                )}
+                {sub.current_period_end && (
+                  <KeyValue
+                    label="Period ends"
+                    value={new Date(sub.current_period_end).toLocaleDateString()}
+                  />
+                )}
+                {sub.unit_price_cents != null && sub.currency && (
+                  <KeyValue
+                    label="Unit price"
+                    value={centsToDisplay(sub.unit_price_cents, sub.currency)}
+                    mono
+                  />
+                )}
+                {sub.payment_method_last4 && (
+                  <KeyValue
+                    label="Card"
+                    value={`${sub.payment_method_brand} •••• ${sub.payment_method_last4}`}
+                  />
+                )}
+              </Stack>
+
+              <Text size="xs" c="dimmed">
+                Payment capture (Stripe / Omise) is gated behind Phase 3 wiring;
+                status here reflects the backend state machine only.
+              </Text>
+
+              {sub.status !== "cancelled" && sub.status !== "terminated" && (
+                <Group justify="flex-start">
+                  <Button
+                    color="red"
+                    variant="light"
+                    onClick={() => {
+                      setCancelReason("");
+                      cancelModal.open();
+                    }}
+                  >
+                    Cancel subscription
+                  </Button>
+                </Group>
               )}
-              {sub.current_period_end && (
-                <>
-                  <dt className="text-neutral-500">Period ends</dt>
-                  <dd>{new Date(sub.current_period_end).toLocaleDateString()}</dd>
-                </>
-              )}
-              {sub.unit_price_cents != null && sub.currency && (
-                <>
-                  <dt className="text-neutral-500">Unit price</dt>
-                  <dd className="font-mono">
-                    {centsToDisplay(sub.unit_price_cents, sub.currency)}
-                  </dd>
-                </>
-              )}
-              {sub.payment_method_last4 && (
-                <>
-                  <dt className="text-neutral-500">Card</dt>
-                  <dd>
-                    {sub.payment_method_brand} •••• {sub.payment_method_last4}
-                  </dd>
-                </>
-              )}
-            </dl>
-            <p className="mt-4 text-xs text-neutral-500">
-              Payment capture (Stripe / Omise) is gated behind Phase 3 wiring; status here
-              reflects the backend state machine only.
-            </p>
-            {sub.status !== "cancelled" && sub.status !== "terminated" && (
-              <div className="mt-4">
-                <Button
-                  variant="danger"
-                  onClick={async () => {
-                    const reason = window.prompt("Reason?") || "";
-                    if (!window.confirm("Cancel subscription?")) return;
-                    try {
-                      const updated = await Subs.cancel(reason);
-                      setSub(updated);
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : t("error_generic"));
-                    }
-                  }}
-                >
-                  Cancel subscription
-                </Button>
-              </div>
-            )}
-          </>
-        ) : (
-          <p className="text-sm text-neutral-500">{t("no_data")}</p>
-        )}
-      </Card>
+            </Stack>
+          ) : (
+            <Text size="sm" c="dimmed">
+              {t("no_data")}
+            </Text>
+          )}
+        </Card>
+      </Stack>
+
+      <Modal
+        opened={cancelOpened}
+        onClose={cancelModal.close}
+        title="Cancel subscription"
+        centered
+        radius="md"
+      >
+        <Stack gap="md">
+          <Text size="sm">
+            Are you sure? This stops new billing periods. Existing data stays.
+          </Text>
+          <Textarea
+            label="Reason"
+            placeholder="(optional)"
+            value={cancelReason}
+            onChange={(e) => setCancelReason(e.currentTarget.value)}
+            rows={3}
+          />
+          <Group justify="flex-end">
+            <Button variant="default" onClick={cancelModal.close}>
+              {t("back")}
+            </Button>
+            <Button color="red" loading={cancelling} onClick={cancelSubscription}>
+              Cancel subscription
+            </Button>
+          </Group>
+        </Stack>
+      </Modal>
     </div>
+  );
+}
+
+function KeyValue({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <Group justify="space-between">
+      <Text size="sm" c="dimmed">
+        {label}
+      </Text>
+      <Text size="sm" ff={mono ? "monospace" : undefined}>
+        {value}
+      </Text>
+    </Group>
   );
 }
