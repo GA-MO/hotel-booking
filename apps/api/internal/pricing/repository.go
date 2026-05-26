@@ -151,6 +151,61 @@ func (r *Repository) ListRoomTypesForHotel(ctx context.Context, hotelID uuid.UUI
 	return result, rows.Err()
 }
 
+// MinAvailableForRange returns the minimum number of rooms still available
+// across every night in [start, end), accounting for inventory overrides and
+// active bookings (pending_payment | confirmed | checked_in). The boolean
+// reports whether any day in the range is hotel-closed — when true, the
+// caller should treat availability as 0 regardless of inventory math.
+//
+// Mirrors the SQL in booking.checkAvailability, but returns the count instead
+// of a sentinel error so the public quote endpoint can surface "X rooms left"
+// to the guest before they commit. No row lock here — this is a read-only
+// preview; commitment still goes through the booking module's FOR UPDATE
+// path.
+func (r *Repository) MinAvailableForRange(
+	ctx context.Context,
+	roomTypeID uuid.UUID,
+	totalInventory int,
+	start, end time.Time,
+) (available int, anyClosed bool, err error) {
+	var minAvail *int
+	err = r.db.QueryRow(ctx, `
+		WITH days AS (
+			SELECT generate_series($2::date, ($3::date - 1), '1 day'::interval)::date AS d
+		)
+		SELECT
+			COALESCE(bool_or(COALESCE(ov.closed, false)), false) AS any_closed,
+			MIN($4::int + COALESCE(ov.inventory_change, 0) - COALESCE(s.sold, 0)) AS min_available
+		FROM days
+		LEFT JOIN availability_overrides ov
+			ON ov.room_type_id = $1 AND ov.date = days.d
+		LEFT JOIN LATERAL (
+			SELECT COALESCE(SUM(b.room_count), 0)::int AS sold
+			FROM bookings b
+			WHERE b.room_type_id = $1
+			  AND b.status IN ('pending_payment','confirmed','checked_in')
+			  AND days.d >= b.check_in_date
+			  AND days.d <  b.check_out_date
+		) s ON true
+	`, roomTypeID, start, end, totalInventory).Scan(&anyClosed, &minAvail)
+	if err != nil {
+		return 0, false, fmt.Errorf("min available: %w", err)
+	}
+	if anyClosed {
+		return 0, true, nil
+	}
+	// minAvail is NULL only when the date range produced no rows. The service
+	// layer guards against that with validateDateRange, but if we ever reach
+	// here treat it as zero rather than panic on the deref.
+	if minAvail == nil {
+		return 0, false, nil
+	}
+	if *minAvail < 0 {
+		return 0, false, nil
+	}
+	return *minAvail, false, nil
+}
+
 // ----- availability_overrides -----
 
 const overrideColumns = `

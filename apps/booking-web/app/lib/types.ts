@@ -139,6 +139,11 @@ export type QuoteResponse = {
   per_night: DailyRate[];
   subtotal: string;
   total: string;
+  // Preview availability across the requested stay (min over all nights, after
+  // overrides + active bookings). The BE re-checks under FOR UPDATE at booking
+  // creation, so this is for UI gating only — not a held reservation.
+  available_rooms: number;
+  closed?: boolean;
   adjustments?: string[];
 };
 

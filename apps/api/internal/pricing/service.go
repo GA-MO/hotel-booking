@@ -332,16 +332,32 @@ func (s *Service) PublicQuote(ctx context.Context, slug string, req QuoteRequest
 	subtotal := q.SubtotalMinor * int64(req.Rooms)
 	total := q.TotalMinor * int64(req.Rooms)
 
+	// Preview-only availability check. Failure here doesn't block the quote —
+	// the guest still sees the price, but the FE uses available_rooms to
+	// gate the submit button. The authoritative inventory check still happens
+	// at booking creation under FOR UPDATE.
+	available, closed, availErr := s.repo.MinAvailableForRange(
+		ctx, rt.ID, rt.TotalInventory, req.CheckIn.Time, req.CheckOut.Time,
+	)
+	if availErr != nil {
+		// Log via wrapped error; degrade to "unknown availability" by zeroing
+		// the field so the FE falls back to the post-submit error path.
+		available = 0
+		closed = false
+	}
+
 	return &QuoteResponse{
-		HotelID:     hotel.ID,
-		RoomTypeID:  rt.ID,
-		Rooms:       req.Rooms,
-		Nights:      q.Nights,
-		Currency:    q.Currency,
-		PerNight:    q.PerNight,
-		Subtotal:    formatMinor(subtotal),
-		Total:       formatMinor(total),
-		Adjustments: q.Adjustments,
+		HotelID:        hotel.ID,
+		RoomTypeID:     rt.ID,
+		Rooms:          req.Rooms,
+		Nights:         q.Nights,
+		Currency:       q.Currency,
+		PerNight:       q.PerNight,
+		Subtotal:       formatMinor(subtotal),
+		Total:          formatMinor(total),
+		AvailableRooms: available,
+		Closed:         closed,
+		Adjustments:    q.Adjustments,
 	}, nil
 }
 

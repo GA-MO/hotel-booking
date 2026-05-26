@@ -50,6 +50,18 @@ export default function BookForm({ slug, locale, dict, rooms, initialRoomId }: P
   const nights = nightsBetween(checkIn, checkOut);
   const datesValid = isYMD(checkIn) && isYMD(checkOut) && nights >= 1;
 
+  // Availability is computed by the quote endpoint as the minimum nightly
+  // capacity (post-overrides, post-active-bookings) across the requested
+  // stay. The BE re-checks under FOR UPDATE at submit time — so this only
+  // controls the button + the in-line messaging, not the actual hold.
+  const available = quote?.available_rooms ?? null;
+  const closed = quote?.closed ?? false;
+  const soldOut = available !== null && available <= 0;
+  const overRequested =
+    available !== null && available > 0 && roomCount > available;
+  const availabilityBlocks = closed || soldOut || overRequested;
+  const fmtTpl = (tpl: string, n: number) => tpl.replace("{n}", String(n));
+
   // Debounced quote fetching so each keystroke on dates/rooms doesn't fire
   // a request. `quoteSeq` invalidates in-flight responses if newer inputs
   // start a fresh quote — last-writer-wins.
@@ -126,7 +138,14 @@ export default function BookForm({ slug, locale, dict, rooms, initialRoomId }: P
       window.location.href = `/${slug}/booking/${encodeURIComponent(booking.reference)}?${q.toString()}`;
     } catch (err) {
       if (err instanceof ApiError) {
-        setSubmitError(`${dict.common.error_generic} [${err.code}]`);
+        // 409 NO_AVAILABILITY means inventory ran out between the last quote
+        // and submit (or our quote was stale). Surface the friendly
+        // "dates aren't available" line rather than a generic error code.
+        if (err.status === 409 && err.code === "NO_AVAILABILITY") {
+          setSubmitError(dict.book.availability_sold_out);
+        } else {
+          setSubmitError(`${dict.common.error_generic} [${err.code}]`);
+        }
       } else {
         setSubmitError(dict.common.error_generic);
       }
@@ -268,20 +287,39 @@ export default function BookForm({ slug, locale, dict, rooms, initialRoomId }: P
         ) : quoteError ? (
           <p className="text-sm text-red-700">{quoteError}</p>
         ) : quote ? (
-          <dl className="space-y-2 text-sm">
-            <div className="flex justify-between">
-              <dt className="text-neutral-600">
-                {nights} {nights === 1 ? dict.common.night : dict.common.nights}
-                {" · "}
-                {roomCount} {roomCount === 1 ? dict.common.room : dict.common.rooms}
-              </dt>
-              <dd>{formatPrice(quote.subtotal, quote.currency)}</dd>
-            </div>
-            <div className="flex justify-between border-t border-neutral-200 pt-2 text-base font-semibold">
-              <dt>{dict.book.quote_total}</dt>
-              <dd>{formatPrice(quote.total, quote.currency)}</dd>
-            </div>
-          </dl>
+          <div className="space-y-3">
+            <dl className="space-y-2 text-sm">
+              <div className="flex justify-between">
+                <dt className="text-neutral-600">
+                  {nights} {nights === 1 ? dict.common.night : dict.common.nights}
+                  {" · "}
+                  {roomCount} {roomCount === 1 ? dict.common.room : dict.common.rooms}
+                </dt>
+                <dd>{formatPrice(quote.subtotal, quote.currency)}</dd>
+              </div>
+              <div className="flex justify-between border-t border-neutral-200 pt-2 text-base font-semibold">
+                <dt>{dict.book.quote_total}</dt>
+                <dd>{formatPrice(quote.total, quote.currency)}</dd>
+              </div>
+            </dl>
+            {closed ? (
+              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {dict.book.availability_closed}
+              </p>
+            ) : soldOut ? (
+              <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">
+                {dict.book.availability_sold_out}
+              </p>
+            ) : overRequested && available !== null ? (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                {fmtTpl(dict.book.availability_exceeds_template, available)}
+              </p>
+            ) : available !== null && available > 0 && available <= 3 ? (
+              <p className="text-xs text-amber-700">
+                {fmtTpl(dict.book.availability_rooms_left_template, available)}
+              </p>
+            ) : null}
+          </div>
         ) : null}
       </section>
 
@@ -293,10 +331,14 @@ export default function BookForm({ slug, locale, dict, rooms, initialRoomId }: P
 
       <button
         type="submit"
-        disabled={submitting || !quote || !datesValid}
+        disabled={submitting || !quote || !datesValid || availabilityBlocks}
         className="w-full rounded-md bg-[var(--brand-primary,_#111)] px-4 py-3 text-base font-medium text-white shadow disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {submitting ? dict.book.submitting : dict.book.submit}
+        {submitting
+          ? dict.book.submitting
+          : closed || soldOut
+          ? dict.book.availability_sold_out
+          : dict.book.submit}
       </button>
     </form>
   );

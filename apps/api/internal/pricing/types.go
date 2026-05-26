@@ -211,16 +211,25 @@ type QuoteRequest struct {
 }
 
 // QuoteResponse is the wire form of an engine Quote with rooms multiplier applied.
+//
+// AvailableRooms is the minimum nightly availability over the requested stay
+// (post-overrides, post-active-bookings). It is a *preview* — the booking
+// module still re-checks under FOR UPDATE at commit time, so a non-zero value
+// is not a reservation. The FE uses it to disable the submit button when
+// AvailableRooms < Rooms and to render "X rooms left" / "sold out" copy.
+// Closed reports whether the hotel has marked any day in the range as closed.
 type QuoteResponse struct {
-	HotelID      uuid.UUID   `json:"hotel_id"`
-	RoomTypeID   uuid.UUID   `json:"room_type_id"`
-	Rooms        int         `json:"rooms"`
-	Nights       int         `json:"nights"`
-	Currency     string      `json:"currency"`
-	PerNight     []DailyRate `json:"per_night"`
-	Subtotal     string      `json:"subtotal"`
-	Total        string      `json:"total"`
-	Adjustments  []string    `json:"adjustments,omitempty"`
+	HotelID        uuid.UUID   `json:"hotel_id"`
+	RoomTypeID     uuid.UUID   `json:"room_type_id"`
+	Rooms          int         `json:"rooms"`
+	Nights         int         `json:"nights"`
+	Currency       string      `json:"currency"`
+	PerNight       []DailyRate `json:"per_night"`
+	Subtotal       string      `json:"subtotal"`
+	Total          string      `json:"total"`
+	AvailableRooms int         `json:"available_rooms"`
+	Closed         bool        `json:"closed,omitempty"`
+	Adjustments    []string    `json:"adjustments,omitempty"`
 }
 
 // AvailabilityDay is one entry returned by GET /availability — the computed

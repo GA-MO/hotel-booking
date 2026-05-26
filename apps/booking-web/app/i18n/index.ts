@@ -50,6 +50,13 @@ export type Dict = {
     quote_select_dates: string;
     quote_unavailable: string;
     no_rooms: string;
+    // Availability messages — the BookForm gates the submit button based on
+    // available_rooms returned by /quote. The *_template strings use "{n}" as
+    // a placeholder for the room count and are interpolated in the component.
+    availability_sold_out: string;
+    availability_closed: string;
+    availability_exceeds_template: string;
+    availability_rooms_left_template: string;
     summary_title: string;
     pick_room_first: string;
     invalid_dates: string;
